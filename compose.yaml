@@ -1,0 +1,20 @@
+name: sciclops_node
+services:
+  sciclops:
+    container_name: sciclops
+    image: sciclops
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        - sciclops:latest
+        - sciclops:0.0.1
+        - sciclops:dev
+    command: python -m sciclops_rest_node
+    privileged: true
+    env_file: .env
+    volumes:
+      - /dev:/dev
+      - ./src:/home/app/sciclops_module/src
+    ports:
+      - 2000:2000
