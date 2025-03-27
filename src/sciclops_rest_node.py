@@ -3,21 +3,23 @@
 
 from pathlib import Path
 
-from sciclops_driver import SCICLOPS
+from sciclops_interface import SCICLOPS
 from typing_extensions import Annotated
 from madsci.node_module.rest_node_module import RestNode
 from typing import Any, Optional
 from madsci.common.types.node_types import RestNodeConfig
 from madsci.common.types.base_types import BaseModel
-from madsci.node_module.abstract_node_module import action
+from madsci.node_module.helpers import action
 from madsci.common.types.action_types import ActionResult, ActionSucceeded
-from madsci.common.types.location_types import Location
+from madsci.common.types.location_types import Location, LocationArgument
+from madsci.common.types.resource_types import Slot
+from madsci.client.resource_client import ResourceClient
+from madsci.common.types.auth_types import OwnershipInfo
 
 class SciclopsConfig(RestNodeConfig):
     """Configuration for the camera node module."""
 
     vendor_id: int = 0x7513
-
     """The sciclops vendor id address, a device path in Linux/Mac."""
 
     product_id: int = 0x0002
@@ -32,27 +34,15 @@ class SciclopsConfig(RestNodeConfig):
 
     exchange_location: Optional[Any] = None
     """the location of the exchange for placing plates"""
-class NodeLocation(BaseModel):
-    """custom location format for the sciclops"""
-    Z: float = 23.5188
-    """Z joint"""
-    R: float = 109.2741
-    """Rotation joint"""
-    Y: float = 32.7484
-    """extension joint"""
-    P: float = 98.2955
-    """wrist joint"""
-    resource_id: Optional[str] = None
-    """id for the resource"""
-
-
-
+    
+    resource_manager_url: Optional[str] = None
+    """the resource manager url for the sciclops"""
 class SciclopsNode(RestNode):
     config_model = SciclopsConfig
 
     def startup_handler(self):
         """Initial run function for the app, initializes the state
-        Parameters
+        ParametersNodeLocation
         ----------
         app : FastApi
         The REST API app being initialized
@@ -62,7 +52,9 @@ class SciclopsNode(RestNode):
         None"""
         print("Hello, World!")
         try:
-            self.sciclops = SCICLOPS(self.config)
+            self.resource_client = ResourceClient(self.config.resource_manager_url)
+            self.gripper = self.resource_client.query_or_add_resource(resource_name="sciclops_gripper", owner=OwnershipInfo(node_id=self.node_definition.node_id), base_type="slot")
+            self.sciclops = SCICLOPS(self.config, self.resource_client, self.gripper.resource_id) 
         except Exception as error_msg:
             print("------- SCICLOPS Error message: " + str(error_msg) + (" -------"))
             raise(error_msg)
@@ -87,10 +79,11 @@ class SciclopsNode(RestNode):
     @action(name="get_plate")
     def get_plate(
         self,
-        pos: Annotated[NodeLocation, "Stack to get plate from"],
+        source: Annotated[LocationArgument, "Stack to get plate from"],
+        target: Annotated[LocationArgument, "Exchange to place plate"],
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops.get_plate(pos)
+        self.sciclops.get_plate(source, target)
         return ActionSucceeded()
     
     @action(name="limp")
@@ -119,11 +112,11 @@ class SciclopsNode(RestNode):
     @action(name="move")
     def move(
         self,
-        target: NodeLocation
+        target: Annotated[LocationArgument, "Target Location to move to"]
     ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        target = NodeLocation.model_validate(target)  
-        self.sciclops.move(target.Z, target.R, target.Y, target.P)
+        """Get a plate from a stack position and move it to transfer point (or trash)"""  
+        location = target.location
+        self.sciclops.move(location["Z"], location["R"], location["Y"], location["P"])
         return ActionSucceeded()
 
 if __name__ == "__main__":

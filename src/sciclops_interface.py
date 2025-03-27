@@ -7,6 +7,7 @@ import usb.core
 import usb.util
 
 from madsci.common.types.node_types import RestNodeConfig
+from madsci.client.resource_client import ResourceClient
 
 class SCICLOPS:
     """
@@ -14,10 +15,12 @@ class SCICLOPS:
     Python interface that allows remote commands to be executed to the Sciclops.
     """
 
-    def __init__(self, config: RestNodeConfig):
+    def __init__(self, config: RestNodeConfig, resource_client: ResourceClient, gripper_id: str):
         """Creates a new SCICLOPS driver object. The default VENDOR_ID and PRODUCT_ID are for the Sciclops robot."""
         self.VENDOR_ID = config.vendor_id
         self.PRODUCT_ID = config.product_id
+        self.resource_client = resource_client
+        self.gripper_id = gripper_id
         self.neutral_joints = config.neutral_joints
         self.host_path = self.connect_sciclops()
         self.exchange_location = config.exchange_location
@@ -533,7 +536,7 @@ class SCICLOPS:
             P=self.neutral_joints["P"],
             Y=self.neutral_joints["Y"],
         )
-    def get_plate(self, location):
+    def get_plate(self, source, target):
         """
         Grabs plate and places on exchange. Paramater is the stack that the Sciclops is requested to remove the plate from.
         Format: "Stack<num>"
@@ -546,7 +549,6 @@ class SCICLOPS:
         #     print("PLATE ALREADY ON THE EXCHANGE")
         # else:
         plate_type = "96_well"
-
         # Move arm up and to neutral position to avoid hitting any objects
         self.open()
         self.set_speed(10)  #
@@ -561,10 +563,10 @@ class SCICLOPS:
         # Move above desired tower
         self.set_speed(100)
         self.move(
-            R=location["R"],
+            R=source.location["R"],
             Z=23.5188,
-            P=location["P"],
-            Y=location["Y"],
+            P=source.location["P"],
+            Y=source.location["Y"],
         )
         # check coordinates
         asyncio.run(self.check_complete_loop())
@@ -579,6 +581,8 @@ class SCICLOPS:
         grab_height = self.plate_info[plate_type]["grab_tower"]
         self.jog("Z", grab_height)
         self.close()
+        plate, _ = self.resource_client.pop(source.resource_id)
+        self.resource_client.push(self.gripper_id, plate)
         self.set_speed(100)
         self.jog("Z", 1000)
         # check coordinates
@@ -586,10 +590,10 @@ class SCICLOPS:
 
         # Place in exchange
         self.move(
-            R=self.exchange_location["R"],
+            R=target.location["R"],
             Z=23.5188,
-            P=self.exchange_location["P"],
-            Y=self.exchange_location["Y"],
+            P=target.location["P"],
+            Y=target.location["Y"],
         )
         # check coordinates
         # asyncio.run(self.check_complete_loop())
@@ -597,6 +601,8 @@ class SCICLOPS:
         self.set_speed(5)
         self.jog("Z", -30)
         self.open()
+        plate, _ = self.resource_client.pop(self.gripper_id)
+        self.resource_client.push(target.resource_id, plate)
         self.set_speed(100)
         self.jog("Z", 1000)
         # check coordinates
