@@ -120,19 +120,20 @@ class SCICLOPS:
         out_msg = self.send_command(command)
 
         try:
+            print(out_msg)
             # Checks if specified format is found in feedback
             exp = r"Z:([-.\d]+), R:([-.\d]+), Y:([-.\d]+), P:([-.\d]+)"  # Format of coordinates provided in feedback
             find_current_pos = re.search(exp, out_msg)
-            self.current_pos = [
-                float(find_current_pos[1]),
-                float(find_current_pos[2]),
-                float(find_current_pos[3]),
-                float(find_current_pos[4]),
-            ]
+            self.current_pos = {
+                "Z":  float(find_current_pos[1]),
+                "R": float(find_current_pos[2]),
+                "Y": float(find_current_pos[3]),
+                "P": float(find_current_pos[4]),
+            }
 
-            print(self.current_pos)
-        except Exception:
-            pass
+            return self.current_pos
+        except Exception as e:
+             raise(e)
 
     def get_status(self):
         """
@@ -543,11 +544,7 @@ class SCICLOPS:
         remove lid and trash bools tell whether to remove lid from plate and whether to throw said lid in the trash or place in nest
         """
 
-        # check to see if plate already on the exchange
-        # removed for now until labware can be  edited in a file
-        # if self.labware['exchange']['howmany'] != 0:
-        #     print("PLATE ALREADY ON THE EXCHANGE")
-        # else:
+        
         plate_type = "96_well"
         # Move arm up and to neutral position to avoid hitting any objects
         self.open()
@@ -612,7 +609,71 @@ class SCICLOPS:
         self.move_neutral()
         # check coordinates
         # asyncio.run(self.check_complete_loop())
+    
 
+    def return_plate(self, source, target):
+        """
+        Grabs plate and places on exchange. Paramater is the stack that the Sciclops is requested to remove the plate from.
+        Format: "Stack<num>"
+        remove lid and trash bools tell whether to remove lid from plate and whether to throw said lid in the trash or place in nest
+        """
+
+        
+        plate_type = "96_well"
+        # Move arm up and to neutral position to avoid hitting any objects
+        self.open()
+        self.set_speed(10)  #
+        self.jog("Y", -1000)
+        self.jog("Z", 1000)
+        self.set_speed(12)
+        self.move_neutral
+
+        # check coordinates
+        asyncio.run(self.check_complete_loop())
+
+        # Move above desired tower
+        self.set_speed(100)
+        self.move(
+            R=source.location["R"],
+            Z=23.5188,
+            P=source.location["P"],
+            Y=source.location["Y"],
+        )
+        # check coordinates
+        asyncio.run(self.check_complete_loop())
+
+        self.close()
+        self.set_speed(15)
+        self.jog("Z", -380)
+        # move up certain amount
+        self.open()
+        self.set_speed(5)
+        self.jog("Z", -30)
+        grab_height = self.plate_info[plate_type]["grab_tower"]
+        self.jog("Z", grab_height)
+        self.close()
+        plate, _ = self.resource_client.pop(source.resource_id)
+        self.resource_client.push(self.gripper_id, plate)
+        self.set_speed(100)
+        self.jog("Z", 1000)
+        
+        # Place in exchange
+        self.move(
+            R=target.location["R"],
+            Z=23.5188,
+            P=target.location["P"],
+            Y=target.location["Y"],
+        )
+        
+        self.jog("Z", -1000)
+        self.jog("Z", 10)
+        self.open()
+        plate, _ = self.resource_client.pop(self.gripper_id)
+        self.resource_client.push(target.resource_id, plate)
+        self.set_speed(100)
+        self.jog("Z", 1000)
+        self.move_neutral()
+        
     def limp(self, limp_bool):
         """
         Turns on/off limp mode (allows someone to manually move joints)

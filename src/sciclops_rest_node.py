@@ -11,8 +11,9 @@ from madsci.common.types.node_types import RestNodeConfig
 from madsci.common.types.base_types import BaseModel
 from madsci.node_module.helpers import action
 from madsci.common.types.action_types import ActionResult, ActionSucceeded
+from madsci.common.types.admin_command_types import AdminCommandResponse
 from madsci.common.types.location_types import Location, LocationArgument
-from madsci.common.types.resource_types import Slot
+from madsci.common.types.resource_types.definitions import SlotResourceDefinition
 from madsci.client.resource_client import ResourceClient
 from madsci.common.types.auth_types import OwnershipInfo
 
@@ -53,7 +54,7 @@ class SciclopsNode(RestNode):
         print("Hello, World!")
         try:
             self.resource_client = ResourceClient(self.config.resource_manager_url)
-            self.gripper = self.resource_client.query_or_add_resource(resource_name="sciclops_gripper", owner=OwnershipInfo(node_id=self.node_definition.node_id), base_type="slot")
+            self.gripper = self.resource_client.init_resource(SlotResourceDefinition(resource_name="sciclops_gripper_"+str(self.node_definition.node_name), owner=OwnershipInfo(node_id=self.node_definition.node_id)))
             self.sciclops = SCICLOPS(self.config, self.resource_client, self.gripper.resource_id) 
         except Exception as error_msg:
             print("------- SCICLOPS Error message: " + str(error_msg) + (" -------"))
@@ -84,6 +85,16 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.get_plate(source, target)
+        return ActionSucceeded()
+    
+    @action(name="return_plate")
+    def return_plate(
+        self,
+        source: Annotated[LocationArgument, "Exchange to get plate from"],
+        target: Annotated[LocationArgument, "Tower to place plate"],
+    ):
+        """Get a plate from a stack position and move it to transfer point (or trash)"""
+        self.sciclops.return_plate(source, target)
         return ActionSucceeded()
     
     @action(name="limp")
@@ -118,6 +129,12 @@ class SciclopsNode(RestNode):
         location = target.location
         self.sciclops.move(location["Z"], location["R"], location["Y"], location["P"])
         return ActionSucceeded()
+    
+    def get_location(self) -> AdminCommandResponse:
+        try:
+            return AdminCommandResponse(data={"location": self.sciclops.get_position()})
+        except Exception as e:
+             return AdminCommandResponse(success=False)
 
 if __name__ == "__main__":
     sciclops_node = SciclopsNode()
