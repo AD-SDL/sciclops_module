@@ -578,8 +578,13 @@ class SCICLOPS:
         grab_height = self.plate_info[plate_type]["grab_tower"]
         self.jog("Z", grab_height)
         self.close()
-        plate, _ = self.resource_client.pop(source.resource_id)
-        self.resource_client.push(self.gripper_id, plate)
+        try:
+            plate, _ = self.resource_client.pop(source.resource_id)
+            self.resource_client.push(self.gripper_id, plate)
+        except Exception as e:
+            self.open()
+            self.move_neutral()
+            raise e
         self.set_speed(100)
         self.jog("Z", 1000)
         # check coordinates
@@ -598,8 +603,13 @@ class SCICLOPS:
         self.set_speed(5)
         self.jog("Z", -30)
         self.open()
-        plate, _ = self.resource_client.pop(self.gripper_id)
-        self.resource_client.push(target.resource_id, plate)
+        try:
+            plate, _ = self.resource_client.pop(self.gripper_id)
+            self.resource_client.push(target.resource_id, plate)
+        except Exception as e:
+            self.move_neutral()
+            raise e
+        
         self.set_speed(100)
         self.jog("Z", 1000)
         # check coordinates
@@ -652,12 +662,17 @@ class SCICLOPS:
         grab_height = self.plate_info[plate_type]["grab_tower"]
         self.jog("Z", grab_height)
         self.close()
-        plate, _ = self.resource_client.pop(source.resource_id)
-        self.resource_client.push(self.gripper_id, plate)
-        self.set_speed(100)
+        try:
+            plate, _ = self.resource_client.pop(source.resource_id)
+            self.resource_client.push(self.gripper_id, plate)
+        except Exception as e:
+            self.open()
+            self.move_neutral()
+            raise e
+        self.set_speed(50)
         self.jog("Z", 1000)
         
-        # Place in exchange
+        # Place in tower
         self.move(
             R=target.location["R"],
             Z=23.5188,
@@ -668,8 +683,12 @@ class SCICLOPS:
         self.jog("Z", -1000)
         self.jog("Z", 10)
         self.open()
-        plate, _ = self.resource_client.pop(self.gripper_id)
-        self.resource_client.push(target.resource_id, plate)
+        try:
+            plate, _ = self.resource_client.pop(self.gripper_id)
+            self.resource_client.push(target.resource_id, plate)
+        except Exception as e:
+            self.move_neutral()
+            raise e
         self.set_speed(100)
         self.jog("Z", 1000)
         self.move_neutral()
