@@ -1,2 +1,3 @@
 # sciclops_module
-A MADSci node module for interfacing with the Hudson Robotics Sciclops Platecrane
+
+A MADSci Node module for interfacing with the Hudson Robotics Sciclops Platecrane.

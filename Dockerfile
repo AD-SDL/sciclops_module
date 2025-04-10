@@ -1,4 +1,4 @@
-FROM madsci
+FROM ghcr.io/ad-sdl/madsci
 
 LABEL org.opencontainers.image.source=https://github.com/AD-SDL/hudson_platecrane_module
 LABEL org.opencontainers.image.description="Drivers and REST API's for the Hudson Platecrane and Sciclops robots"

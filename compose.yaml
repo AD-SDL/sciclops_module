@@ -2,19 +2,15 @@ name: sciclops_node
 services:
   sciclops:
     container_name: sciclops
-    image: sciclops
+    image: ghcr.io/ad-sdl/sciclops_module
     build:
       context: .
       dockerfile: Dockerfile
       tags:
-        - sciclops:latest
-        - sciclops:0.0.1
-        - sciclops:dev
+        - ghcr.io/ad-sdl/sciclops_module:latest
+        - ghcr.io/ad-sdl/sciclops_module:dev
     command: python -m sciclops_rest_node
     privileged: true
-    env_file: .env
+    network_mode: host
     volumes:
-      - /dev:/dev
-      - ./src:/home/app/sciclops_module/src
-    ports:
-      - 2000:2000
+      - ./definitions:/home/madsci/definitions

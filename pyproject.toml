@@ -16,7 +16,7 @@ dependencies = [
     "pyusb",
     "libusb",
     "pyserial",
-    "madsci.node_module>=0.1.5",
+    "madsci.node_module>=0.1.9",
     "pydantic>=2.7",
     "pytest"
 ]
