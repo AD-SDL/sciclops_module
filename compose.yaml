@@ -1,0 +1,16 @@
+name: sciclops_node
+services:
+  sciclops:
+    container_name: sciclops
+    image: ghcr.io/ad-sdl/sciclops_module
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        - ghcr.io/ad-sdl/sciclops_module:latest
+        - ghcr.io/ad-sdl/sciclops_module:dev
+    command: python -m sciclops_rest_node
+    privileged: true
+    network_mode: host
+    volumes:
+      - ./definitions:/home/madsci/definitions
