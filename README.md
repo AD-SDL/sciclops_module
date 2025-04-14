@@ -21,6 +21,6 @@ python -m sciclops_rest_node --host 127.0.0.1 --port 2000
 
 ### Docker
 
-We provide a `Dockerfile` and example docker compose file (`compose.yaml`) to run this node dockerized.
-
-There is also a pre-built image avaible as `ghcr.io/ad-sdl/sciclops_module`.
+- We provide a `Dockerfile` and example docker compose file (`compose.yaml`) to run this node dockerized.
+- There is also a pre-built image available as `ghcr.io/ad-sdl/sciclops_module`.
+- You can control the container user's id and group id by setting the `USER_ID` and `GROUP_ID`
