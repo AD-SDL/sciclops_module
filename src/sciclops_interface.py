@@ -5,9 +5,9 @@ import re
 
 import usb.core
 import usb.util
-
-from madsci.common.types.node_types import RestNodeConfig
 from madsci.client.resource_client import ResourceClient
+from madsci.common.types.node_types import RestNodeConfig
+
 
 class SCICLOPS:
     """
@@ -15,7 +15,9 @@ class SCICLOPS:
     Python interface that allows remote commands to be executed to the Sciclops.
     """
 
-    def __init__(self, config: RestNodeConfig, resource_client: ResourceClient, gripper_id: str):
+    def __init__(
+        self, config: RestNodeConfig, resource_client: ResourceClient, gripper_id: str
+    ):
         """Creates a new SCICLOPS driver object. The default VENDOR_ID and PRODUCT_ID are for the Sciclops robot."""
         self.VENDOR_ID = config.vendor_id
         self.PRODUCT_ID = config.product_id
@@ -125,7 +127,7 @@ class SCICLOPS:
             exp = r"Z:([-.\d]+), R:([-.\d]+), Y:([-.\d]+), P:([-.\d]+)"  # Format of coordinates provided in feedback
             find_current_pos = re.search(exp, out_msg)
             self.current_pos = {
-                "Z":  float(find_current_pos[1]),
+                "Z": float(find_current_pos[1]),
                 "R": float(find_current_pos[2]),
                 "Y": float(find_current_pos[3]),
                 "P": float(find_current_pos[4]),
@@ -133,7 +135,7 @@ class SCICLOPS:
 
             return self.current_pos
         except Exception as e:
-             raise(e)
+            raise (e)
 
     def get_status(self):
         """
@@ -264,8 +266,8 @@ class SCICLOPS:
 
             print(self.griplength)
 
-        except Exception:self.labware[location]
-    
+        except Exception:
+            pass
 
         command = "GETCOLLAPSEDISTANCE\r\n"  # Command interpreted by Sciclops
         out_msg = self.send_command(command)
@@ -296,7 +298,7 @@ class SCICLOPS:
             self.STEPSPERUNIT = [
                 float(find_steps_per_unit[1]),
                 float(find_steps_per_unit[2]),
-                float(find_stepsGET_per_unit[3]),
+                float(find_steps_per_unit[3]),
                 float(find_steps_per_unit[4]),
             ]
 
@@ -325,7 +327,6 @@ class SCICLOPS:
             pass
 
         # Moves axes to neutral position (above exchange)
-        
 
     def open(self):
         """
@@ -529,14 +530,16 @@ class SCICLOPS:
             pass
 
         self.deletepoint(R, Z, P, Y)
-        
+
     def move_neutral(self):
+        """Move the robot arm to the neutral position."""
         self.move(
             R=self.neutral_joints["R"],
             Z=self.neutral_joints["Z"],
             P=self.neutral_joints["P"],
             Y=self.neutral_joints["Y"],
         )
+
     def get_plate(self, source, target):
         """
         Grabs plate and places on exchange. Paramater is the stack that the Sciclops is requested to remove the plate from.
@@ -544,7 +547,6 @@ class SCICLOPS:
         remove lid and trash bools tell whether to remove lid from plate and whether to throw said lid in the trash or place in nest
         """
 
-        
         plate_type = "96_well"
         # Move arm up and to neutral position to avoid hitting any objects
         self.open()
@@ -552,7 +554,7 @@ class SCICLOPS:
         self.jog("Y", -1000)
         self.jog("Z", 1000)
         self.set_speed(12)
-        self.move_neutral
+        self.move_neutral()
 
         # check coordinates
         asyncio.run(self.check_complete_loop())
@@ -609,7 +611,7 @@ class SCICLOPS:
         except Exception as e:
             self.move_neutral()
             raise e
-        
+
         self.set_speed(100)
         self.jog("Z", 1000)
         # check coordinates
@@ -619,7 +621,6 @@ class SCICLOPS:
         self.move_neutral()
         # check coordinates
         # asyncio.run(self.check_complete_loop())
-    
 
     def return_plate(self, source, target):
         """
@@ -628,7 +629,6 @@ class SCICLOPS:
         remove lid and trash bools tell whether to remove lid from plate and whether to throw said lid in the trash or place in nest
         """
 
-        
         plate_type = "96_well"
         # Move arm up and to neutral position to avoid hitting any objects
         self.open()
@@ -636,7 +636,7 @@ class SCICLOPS:
         self.jog("Y", -1000)
         self.jog("Z", 1000)
         self.set_speed(12)
-        self.move_neutral
+        self.move_neutral()
 
         # check coordinates
         asyncio.run(self.check_complete_loop())
@@ -671,7 +671,7 @@ class SCICLOPS:
             raise e
         self.set_speed(50)
         self.jog("Z", 1000)
-        
+
         # Place in tower
         self.move(
             R=target.location["R"],
@@ -679,7 +679,7 @@ class SCICLOPS:
             P=target.location["P"],
             Y=target.location["Y"],
         )
-        
+
         self.jog("Z", -1000)
         self.jog("Z", 10)
         self.open()
@@ -692,7 +692,7 @@ class SCICLOPS:
         self.set_speed(100)
         self.jog("Z", 1000)
         self.move_neutral()
-        
+
     def limp(self, limp_bool):
         """
         Turns on/off limp mode (allows someone to manually move joints)
@@ -703,7 +703,6 @@ class SCICLOPS:
             limp_string = "TRUE"
         command = "LIMP %s" % limp_string  # Command interpreted by Sciclops
         self.send_command(command)
-
 
     def plate_to_stack(self, tower, add_lid):
         """Plate from exchange to stack (self, tower, plateinfo)"""
@@ -777,7 +776,3 @@ class SCICLOPS:
         # update labware dict
         self.labware["exchange"]["howmany"] -= 1
         self.labware[tower]["howmany"] += 1
-
-
-
-   

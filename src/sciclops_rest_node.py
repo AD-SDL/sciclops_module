@@ -1,21 +1,21 @@
 #! /usr/bin/env python3
 """The server for the Hudson Platecrane/Sciclops that takes incoming WEI flow requests from the experiment application"""
 
-from pathlib import Path
+from typing import Any, Optional
+
+from madsci.client.resource_client import ResourceClient
+from madsci.common.types.action_types import ActionSucceeded
+from madsci.common.types.admin_command_types import AdminCommandResponse
+from madsci.common.types.auth_types import OwnershipInfo
+from madsci.common.types.location_types import LocationArgument
+from madsci.common.types.node_types import RestNodeConfig
+from madsci.common.types.resource_types.definitions import SlotResourceDefinition
+from madsci.node_module.helpers import action
+from madsci.node_module.rest_node_module import RestNode
+from typing_extensions import Annotated
 
 from sciclops_interface import SCICLOPS
-from typing_extensions import Annotated
-from madsci.node_module.rest_node_module import RestNode
-from typing import Any, Optional
-from madsci.common.types.node_types import RestNodeConfig
-from madsci.common.types.base_types import BaseModel
-from madsci.node_module.helpers import action
-from madsci.common.types.action_types import ActionResult, ActionSucceeded
-from madsci.common.types.admin_command_types import AdminCommandResponse
-from madsci.common.types.location_types import Location, LocationArgument
-from madsci.common.types.resource_types.definitions import SlotResourceDefinition
-from madsci.client.resource_client import ResourceClient
-from madsci.common.types.auth_types import OwnershipInfo
+
 
 class SciclopsConfig(RestNodeConfig):
     """Configuration for the camera node module."""
@@ -26,8 +26,13 @@ class SciclopsConfig(RestNodeConfig):
     product_id: int = 0x0002
 
     """The sciclops vendor id address, a device path in Linux/Mac."""
-    
-    neutral_joints: dict[str, float] = {"Z": 23.5188, "R": 109.2741, "Y": 32.7484, "P": 98.2955}
+
+    neutral_joints: dict[str, float] = {
+        "Z": 23.5188,
+        "R": 109.2741,
+        "Y": 32.7484,
+        "P": 98.2955,
+    }
     """The neutral joint position for the arm"""
 
     plate_info: Optional[Any] = None
@@ -35,10 +40,14 @@ class SciclopsConfig(RestNodeConfig):
 
     exchange_location: Optional[Any] = None
     """the location of the exchange for placing plates"""
-    
+
     resource_manager_url: Optional[str] = None
     """the resource manager url for the sciclops"""
+
+
 class SciclopsNode(RestNode):
+    """MADSci node module for the Hudson Robotics Sciclops."""
+
     config_model = SciclopsConfig
 
     def startup_handler(self):
@@ -54,28 +63,34 @@ class SciclopsNode(RestNode):
         print("Hello, World!")
         try:
             self.resource_client = ResourceClient(self.config.resource_manager_url)
-            self.gripper = self.resource_client.init_resource(SlotResourceDefinition(resource_name="sciclops_gripper_"+str(self.node_definition.node_name), owner=OwnershipInfo(node_id=self.node_definition.node_id)))
-            self.sciclops = SCICLOPS(self.config, self.resource_client, self.gripper.resource_id) 
+            self.gripper = self.resource_client.init_resource(
+                SlotResourceDefinition(
+                    resource_name="sciclops_gripper_"
+                    + str(self.node_definition.node_name),
+                    owner=OwnershipInfo(node_id=self.node_definition.node_id),
+                )
+            )
+            self.sciclops = SCICLOPS(
+                self.config, self.resource_client, self.gripper.resource_id
+            )
         except Exception as error_msg:
             print("------- SCICLOPS Error message: " + str(error_msg) + (" -------"))
-            raise(error_msg)
+            raise (error_msg)
         else:
             print("SCICLOPS online")
 
     @action(name="status")
     def status(self):
         """Action that forces the sciclops to check its status."""
-        
+
         self.sciclops.get_status()
         return ActionSucceeded()
-
 
     @action
     def home(self):
         """Homes the sciclops"""
         self.sciclops.home()
         return ActionSucceeded()
-
 
     @action(name="get_plate")
     def get_plate(
@@ -86,7 +101,7 @@ class SciclopsNode(RestNode):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.get_plate(source, target)
         return ActionSucceeded()
-    
+
     @action(name="return_plate")
     def return_plate(
         self,
@@ -96,7 +111,7 @@ class SciclopsNode(RestNode):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.return_plate(source, target)
         return ActionSucceeded()
-    
+
     @action(name="limp")
     def limp(
         self,
@@ -113,6 +128,7 @@ class SciclopsNode(RestNode):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.open()
         return ActionSucceeded()
+
     @action(name="close")
     def close(
         self,
@@ -120,21 +136,21 @@ class SciclopsNode(RestNode):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.close()
         return ActionSucceeded()
+
     @action(name="move")
-    def move(
-        self,
-        target: Annotated[LocationArgument, "Target Location to move to"]
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""  
+    def move(self, target: Annotated[LocationArgument, "Target Location to move to"]):
+        """Get a plate from a stack position and move it to transfer point (or trash)"""
         location = target.location
         self.sciclops.move(location["Z"], location["R"], location["Y"], location["P"])
         return ActionSucceeded()
-    
+
     def get_location(self) -> AdminCommandResponse:
+        """Return the current position of the sciclops"""
         try:
             return AdminCommandResponse(data={"location": self.sciclops.get_position()})
-        except Exception as e:
-             return AdminCommandResponse(success=False)
+        except Exception:
+            return AdminCommandResponse(success=False)
+
 
 if __name__ == "__main__":
     sciclops_node = SciclopsNode()
