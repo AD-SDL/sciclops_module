@@ -24,4 +24,3 @@ python -m sciclops_rest_node --host 127.0.0.1 --port 2000
 We provide a `Dockerfile` and example docker compose file (`compose.yaml`) to run this node dockerized.
 
 There is also a pre-built image avaible as `ghcr.io/ad-sdl/sciclops_module`.
-
