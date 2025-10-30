@@ -38,31 +38,18 @@ class SciclopsConfig(RestNodeConfig):
     plate_info: Optional[Any] = None
     """The specs for picking up different kinds of plates"""
 
-    exchange_location: Optional[Any] = None
-    """the location of the exchange for placing plates"""
-
-    resource_manager_url: Optional[str] = None
-    """the resource manager url for the sciclops"""
-
 
 class SciclopsNode(RestNode):
     """MADSci node module for the Hudson Robotics Sciclops."""
 
+    sciclops_interface: SCICLOPS
+    config: SciclopsConfig = SciclopsConfig()
     config_model = SciclopsConfig
 
     def startup_handler(self):
-        """Initial run function for the app, initializes the state
-        ParametersNodeLocation
-        ----------
-        app : FastApi
-        The REST API app being initialized
+        """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
 
-        Returns
-        -------
-        None"""
-        print("Hello, World!")
         try:
-            self.resource_client = ResourceClient(self.config.resource_manager_url)
             self.gripper = self.resource_client.init_resource(
                 SlotResourceDefinition(
                     resource_name="sciclops_gripper_"
@@ -86,12 +73,6 @@ class SciclopsNode(RestNode):
         self.sciclops.get_status()
         return ActionSucceeded()
 
-    @action
-    def home(self):
-        """Homes the sciclops"""
-        self.sciclops.home()
-        return ActionSucceeded()
-
     @action(name="get_plate")
     def get_plate(
         self,
@@ -100,7 +81,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.get_plate(source, target)
-        return ActionSucceeded()
+        return 
 
     @action(name="return_plate")
     def return_plate(
@@ -110,7 +91,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.return_plate(source, target)
-        return ActionSucceeded()
+        return 
 
     @action(name="limp")
     def limp(
@@ -119,7 +100,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.limp(toggle)
-        return ActionSucceeded()
+        return 
 
     @action(name="open")
     def open(
@@ -127,7 +108,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.open()
-        return ActionSucceeded()
+        return 
 
     @action(name="close")
     def close(
@@ -135,14 +116,14 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops.close()
-        return ActionSucceeded()
+        return 
 
     @action(name="move")
     def move(self, target: Annotated[LocationArgument, "Target Location to move to"]):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         location = target.location
         self.sciclops.move(location["Z"], location["R"], location["Y"], location["P"])
-        return ActionSucceeded()
+        return 
 
     def get_location(self) -> AdminCommandResponse:
         """Return the current position of the sciclops"""
@@ -151,6 +132,20 @@ class SciclopsNode(RestNode):
         except Exception:
             return AdminCommandResponse(success=False)
 
+    def home(self) -> AdminCommandResponse:
+        """Home the sciclops"""
+        try:
+            self.sciclops.home()
+            return AdminCommandResponse()
+        except Exception:
+            return AdminCommandResponse(success=False)
+        
+    def reset(self) -> AdminCommandResponse:
+        """Reset the Sciclops robot"""
+        self.logger.log("Resetting node...")
+        result = super().reset()
+        self.logger.log("Node reset.")
+        return result
 
 if __name__ == "__main__":
     sciclops_node = SciclopsNode()
