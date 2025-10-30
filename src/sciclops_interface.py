@@ -25,7 +25,6 @@ class SCICLOPS:
         self.gripper_id = gripper_id
         self.neutral_joints = config.neutral_joints
         self.host_path = self.connect_sciclops()
-        self.exchange_location = config.exchange_location
         self.current_pos = [0, 0, 0, 0]
         self.STATUS = 0
         self.ERROR = ""
