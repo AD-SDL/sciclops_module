@@ -36,12 +36,13 @@ class SciclopsConfig(RestNodeConfig):
     """The specs for picking up different kinds of plates"""
 
     stack_formation: list[str] = [
-    "microplate_no_lid_stack",
-    "microplate_no_lid_stack",
-    "microplate_no_lid_stack",
-    "microplate_no_lid_stack",
+        "microplate_no_lid_stack",
+        "microplate_no_lid_stack",
+        "microplate_no_lid_stack",
+        "microplate_no_lid_stack",
     ]
     """List of 4 stack types. Options: 'microplate_no_lid_stack', 'microplate_with_lid_stack', 'deep_well_plate_stack'"""
+
 
 class SciclopsNode(RestNode):
     """MADSci node module for the Hudson Robotics Sciclops."""
@@ -229,15 +230,20 @@ class SciclopsNode(RestNode):
             version="1.0.0",
         )
 
-
         self.stack_resources = []
         self.stack_access_slots = []
-        
+
         for i, stack_type in enumerate(self.config.stack_formation, start=1):
-            if stack_type not in ["microplate_no_lid_stack", "microplate_with_lid_stack", "deep_well_plate_stack"]:
-                self.logger.log_error(f"Invalid stack type '{stack_type}' at position {i}")
+            if stack_type not in [
+                "microplate_no_lid_stack",
+                "microplate_with_lid_stack",
+                "deep_well_plate_stack",
+            ]:
+                self.logger.log_error(
+                    f"Invalid stack type '{stack_type}' at position {i}"
+                )
                 raise ValueError(f"Invalid stack type: {stack_type}")
-            
+
             # Create stack resource from the specified template
             stack_resource = self.resource_client.create_resource_from_template(
                 template_name=stack_type,
@@ -245,7 +251,7 @@ class SciclopsNode(RestNode):
                 add_to_database=True,
             )
             self.stack_resources.append(stack_resource)
-            
+
             # Create corresponding stack access slot
             stack_access = self.resource_client.create_resource_from_template(
                 template_name="stack_access_slot",
@@ -253,9 +259,8 @@ class SciclopsNode(RestNode):
                 add_to_database=True,
             )
             self.stack_access_slots.append(stack_access)
-            
-            self.logger.log(f"Initialized stack {i} as {stack_type}")
 
+            self.logger.log(f"Initialized stack {i} as {stack_type}")
 
     def shutdown_handler(self) -> None:
         """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
@@ -288,7 +293,7 @@ class SciclopsNode(RestNode):
         else:
             self.node_state = {
                 "sciclops_status_code": "OFFLINE",
-            }   
+            }
             self.logger.error("Sciclops is not initialized.")
 
     @action(name="get_plate")
@@ -299,7 +304,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops_interface.get_plate(source, target)
-        return 
+        return
 
     @action(name="return_plate")
     def return_plate(
@@ -309,7 +314,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops_interface.return_plate(source, target)
-        return 
+        return
 
     @action(name="limp")
     def limp(
@@ -318,7 +323,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops_interface.limp(toggle)
-        return 
+        return
 
     @action(name="open")
     def open(
@@ -326,7 +331,7 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops_interface.open()
-        return 
+        return
 
     @action(name="close")
     def close(
@@ -334,19 +339,23 @@ class SciclopsNode(RestNode):
     ):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         self.sciclops_interface.close()
-        return 
+        return
 
     @action(name="move")
     def move(self, target: Annotated[LocationArgument, "Target Location to move to"]):
         """Get a plate from a stack position and move it to transfer point (or trash)"""
         location = target.location
-        self.sciclops_interface.move(location["Z"], location["R"], location["Y"], location["P"])
-        return 
+        self.sciclops_interface.move(
+            location["Z"], location["R"], location["Y"], location["P"]
+        )
+        return
 
     def get_location(self) -> AdminCommandResponse:
         """Return the current position of the sciclops"""
         try:
-            return AdminCommandResponse(data={"location": self.sciclops_interface.get_position()})
+            return AdminCommandResponse(
+                data={"location": self.sciclops_interface.get_position()}
+            )
         except Exception:
             return AdminCommandResponse(success=False)
 
@@ -357,13 +366,14 @@ class SciclopsNode(RestNode):
             return AdminCommandResponse()
         except Exception:
             return AdminCommandResponse(success=False)
-        
+
     def reset(self) -> AdminCommandResponse:
         """Reset the Sciclops robot"""
         self.logger.log("Resetting node...")
         result = super().reset()
         self.logger.log("Node reset.")
         return result
+
 
 if __name__ == "__main__":
     sciclops_node = SciclopsNode()
