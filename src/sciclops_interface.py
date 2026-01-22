@@ -24,8 +24,7 @@ class SCICLOPS:
         self.resource_client = resource_client
         self.gripper_id = gripper_id
         self.neutral_joints = config.neutral_joints
-        self.host_path = self.connect_sciclops()
-        self.exchange_location = config.exchange_location
+        self.host_path = self.connect()
         self.current_pos = [0, 0, 0, 0]
         self.STATUS = 0
         self.ERROR = ""
@@ -35,7 +34,7 @@ class SCICLOPS:
         self.error = self.get_error()
         self.movement_state = "READY"
 
-    def connect_sciclops(self):
+    def connect(self):
         """
         Connect to USB device. If wrong device, inform user
         """
@@ -48,7 +47,7 @@ class SCICLOPS:
             print("Device Connected")
             return host_path
 
-    def disconnect_robot(self):
+    def disconnect(self):
         """Disconnects from the sciclops robot."""
         try:
             usb.util.dispose_resources(self.host_path)
