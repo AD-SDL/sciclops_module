@@ -20,7 +20,7 @@ class PlateCraneLocation(BaseModel):
 
 
 class SciClopsLocation(BaseModel):
-    """A location accessible by the PlateCrane EX"""
+    """A location accessible by the SciClops"""
 
     name: str
     """Internal name of the location"""

@@ -1,26 +1,23 @@
 #! /usr/bin/env python3
 """The server for the Hudson Platecrane/Sciclops that takes incoming WEI flow requests from the experiment application"""
 
-from pathlib import Path
-from typing import Annotated, Optional, Union
-import traceback
+from typing import Annotated, Optional
 
-from fastapi.datastructures import State
 from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.location_types import LocationArgument
-from madsci.common.types.node_types import NodeDefinition, RestNodeConfig
-from madsci.common.types.resource_types import Slot, Stack, Collection, Resource
+from madsci.common.types.node_types import RestNodeConfig
+from madsci.common.types.resource_types import Collection, Resource, Slot, Stack
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
 
-from sciclops_driver import SCICLOPS, SciClopsLocation
 from resource_helpers.sciclops_resource_defs import plate_definitions
+from sciclops_driver import SCICLOPS, SciClopsLocation
 
 """
 TODO:
 - Add all the SciClops locations to the location client!
-- Righ now cannot replace a lid from the stack because a stack can have more than one chiid.
-    Error: 'Stack' object has no attribute 'child'",
+- BUG: replacing lid onto nest from stack, sciclops grabs way too low on the z-axis.
+- Separate out plate type checks for compliance to another helper method
 
 
 
@@ -52,7 +49,6 @@ Below is the plate with lid standard that I'm working with:
 class SciClopsConfig(RestNodeConfig):
     """Configuration for the SciClops REST Node."""
 
-    # TODO: What else to add here?
     default_speed: int = 100
     """The default speed for the PlateCrane robot arm to move, as a percentage."""
 
@@ -77,15 +73,7 @@ class SciClopsNode(RestNode):
         self._init_resource_templates()
         self._create_resources()
 
-        # TESTING
-        self._create_test_plate()
-
-
-
-    def _init_resource_templates(
-        self
-    ):
-
+    def _init_resource_templates(self):
         # Gripper template
         gripper_slot = Slot(
             resource_name="sciclops_gripper",
@@ -105,9 +93,6 @@ class SciClopsNode(RestNode):
             created_by=self.node_definition.node_id,
             version="1.0.0",
         )
-
-        # Exchange nest template - TODO
-
 
         # Lid nest template
         lid_nest_slot = Slot(
@@ -146,7 +131,6 @@ class SciClopsNode(RestNode):
             version="1.0.0",
         )
 
-
     def _create_resources(self):
         # Initialize gripper resource from template
         self.gripper_resource = self.resource_client.create_resource_from_template(
@@ -169,50 +153,58 @@ class SciClopsNode(RestNode):
 
         # Initialize stack resources from template
         self.stack_1_resource = self.resource_client.create_resource_from_template(
-            template_name = "sciclops_stack_template",
-            resource_name = "stack_1",
-            add_to_database = True,
+            template_name="sciclops_stack_template",
+            resource_name="stack_1",
+            add_to_database=True,
         )
         self.stack_2_resource = self.resource_client.create_resource_from_template(
-            template_name = "sciclops_stack_template",
-            resource_name = "stack_2",
-            add_to_database = True,
+            template_name="sciclops_stack_template",
+            resource_name="stack_2",
+            add_to_database=True,
         )
         self.stack_3_resource = self.resource_client.create_resource_from_template(
-            template_name = "sciclops_stack_template",
-            resource_name = "stack_3",
-            add_to_database = True,
+            template_name="sciclops_stack_template",
+            resource_name="stack_3",
+            add_to_database=True,
         )
         self.stack_4_resource = self.resource_client.create_resource_from_template(
-            template_name = "sciclops_stack_template",
-            resource_name = "stack_4",
-            add_to_database = True,
+            template_name="sciclops_stack_template",
+            resource_name="stack_4",
+            add_to_database=True,
         )
         self.stack_5_resource = self.resource_client.create_resource_from_template(
-            template_name = "sciclops_stack_template",
-            resource_name = "stack_5",
-            add_to_database = True,
+            template_name="sciclops_stack_template",
+            resource_name="stack_5",
+            add_to_database=True,
         )
 
     def _create_test_plate(self):
-        test_lid = Resource(
-            resource_name = "TEST_LID",
-            attributes={
-                "lid": True
-            }
-        )
+        """USED FOR TESTING."""
+        test_lid = Resource(resource_name="TEST_LID", attributes={"lid": True})
+
+        # PLATE 1
         test_plate_resource = Collection(
-            resource_name = "FORMATTED_TEST_PLATE3",
+            resource_name="FORMATTED_TEST_PLATE1",
             capacity=2,
             children={
                 "lid_slot": Slot(
-                    resource_name = "lid slot resource on test plate",
-                    children=[test_lid]
+                    resource_name="lid slot resource on test plate", children=[test_lid]
                 )
-            }
+            },
         )
         self.resource_client.add_resource(test_plate_resource)
 
+        # PLATE 2
+        test_plate_resource = Collection(
+            resource_name="FORMATTED_TEST_PLATE2",
+            capacity=2,
+            children={
+                "lid_slot": Slot(
+                    resource_name="lid slot resource on test plate", children=[test_lid]
+                )
+            },
+        )
+        self.resource_client.add_resource(test_plate_resource)
 
     @action()
     def home(self) -> None:
@@ -230,14 +222,13 @@ class SciClopsNode(RestNode):
         incremental_lift: Annotated[bool, "Incremental lift during transfer"] = False,
     ) -> None:
         """Picks labware from a location, ending in the PlateCrane gripper."""
+
+        # Extract source representation and validate.
+        # TODO: Catch error and return ActionFailed
         source.representation["name"] = source.location_name
         source = SciClopsLocation.model_validate(source.representation)
 
-        # TESTING
-        self.logger.log_info(f"{source=}")
-        self.logger.log_info(f"{type(source)=}")
-
-        # extract plate definition
+        # Extract plate definition
         try:
             plate_def = plate_definitions[plate_type]
         except Exception as e:
@@ -256,8 +247,8 @@ class SciClopsNode(RestNode):
             ).resource_id
             source_resource = self.resource_client.get_resource(source_resource_id)
             if len(source_resource.children) > 0:
-                plate_resource = source_resource.children[0]
-                # this accounts for the source resource being a stack
+                plate_resource = source_resource.children[-1]
+                # This accounts for the source resource being a stack (last plate (one on the top) is the plate that gets popped.)
             else:
                 return ActionFailed(
                     errors=[
@@ -296,6 +287,7 @@ class SciClopsNode(RestNode):
                 resource=self.gripper_resource, child=plate_resource
             )
 
+        # If sucessful, return None.
         return None
 
     @action()
@@ -311,10 +303,6 @@ class SciClopsNode(RestNode):
 
         target.representation["name"] = target.location_name
         target = SciClopsLocation.model_validate(target.representation)
-
-        # TESTING
-        print(f"{target}")
-        print(f"{type(target)}")
 
         # Extract plate definition
         try:
@@ -427,25 +415,21 @@ class SciClopsNode(RestNode):
         ] = False,
     ) -> None:
         """Removes a lid from a plate."""
+
+        # Extract source and target representations and validate.
+        # TODO: Catch errors and return ActionFailed
         source.representation["name"] = source.location_name
         target.representation["name"] = target.location_name
         source = SciClopsLocation.model_validate(source.representation)
         target = SciClopsLocation.model_validate(target.representation)
 
-        # TESTING
-        print(f"{source=}")
-        print(f"{type(source)=}")
-
-        print(f"{target=}")
-        print(f"{type(target)=}")
-
         # Extract plate definition
         try:
             plate_def = plate_definitions[plate_type]
-        except:
+        except Exception as e:
             return ActionFailed(
                 errors=[
-                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions."
+                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
                 ]
             )
 
@@ -464,8 +448,12 @@ class SciClopsNode(RestNode):
                     source.name
                 ).resource_id
                 source_resource = self.resource_client.get_resource(source_resource_id)
-                if len(source_resource.children) == 1:
-                    plate_resource = source_resource.child
+
+                if len(source_resource.children) > 0:
+                    plate_resource = source_resource.children[
+                        -1
+                    ]  # This accounts for the source being a stack as well (last item in stack list is the item popped)
+
                     if "lid_slot" in plate_resource.children:
                         lid_slot_child_value = plate_resource.children["lid_slot"]
                         if isinstance(lid_slot_child_value, Slot):
@@ -500,16 +488,18 @@ class SciClopsNode(RestNode):
                     )
 
                 # Is the target location clear?
+
                 target_resource_id = self.location_client.get_location_by_name(
                     target.name
                 ).resource_id
                 target_resource = self.resource_client.get_resource(target_resource_id)
-                if not len(target_resource.children) == 0:
-                    return ActionFailed(
-                        errors=[
-                            f"A plate resource already exists at the target location {target.name}. The remove lid action cannot be completed."
-                        ]
-                    )
+                if target.location_type == "nest":
+                    if not len(target_resource.children) == 0:
+                        return ActionFailed(
+                            errors=[
+                                f"A plate resource already exists at the target location {target.name}. The remove lid action cannot be completed."
+                            ]
+                        )
 
                 # Is the gripper location clear?
                 self.gripper_resource = self.resource_client.get_resource(
@@ -523,7 +513,9 @@ class SciClopsNode(RestNode):
                     )
             else:
                 return ActionFailed(
-                    errors = [f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"]
+                    errors=[
+                        f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+                    ]
                 )
         else:
             self.logger.log_info("Skipping resources validation for remove lid action.")
@@ -549,7 +541,9 @@ class SciClopsNode(RestNode):
                 )
         else:
             return ActionFailed(
-                errors = [f"lid_resource or target_resource do not exist. {lid_resource=}, {target_resource=}"]
+                errors=[
+                    f"lid_resource or target_resource do not exist. {lid_resource=}, {target_resource=}"
+                ]
             )
 
     @action()
@@ -566,19 +560,15 @@ class SciClopsNode(RestNode):
         ] = False,
     ) -> None:
         """Replaces a lid on a plate."""
+
+        # Extract source and target representations and validate.
+        # TODO Catch errors and return ActionFailed (allows the user to try again without restarting the node)
         source.representation["name"] = source.location_name
         target.representation["name"] = target.location_name
         source = SciClopsLocation.model_validate(source.representation)
         target = SciClopsLocation.model_validate(target.representation)
 
-        # TESTING
-        print(f"{source=}")
-        print(f"{type(source)=}")
-
-        print(f"{target=}")
-        print(f"{type(target)=}")
-
-        # Extract plate definition
+        # Extract plate definition.
         try:
             plate_def = plate_definitions[plate_type]
         except Exception as e:
@@ -605,14 +595,21 @@ class SciClopsNode(RestNode):
                 ).resource_id
                 source_resource = self.resource_client.get_resource(source_resource_id)
                 if (
-                    len(source_resource.children) == 1
+                    len(source_resource.children) > 0
                 ):  # source slot resource can only have one child
-                    child_resource = source_resource.child
+                    child_resource = source_resource.children[
+                        -1
+                    ]  # accounts for the source being a stack as well as a nest
+
+                    # TESTING
+                    print("CHILD -1 RESOURCE!")
+                    print(f"{child_resource=}")
+
                     if "lid" in child_resource.attributes:
-                        if source_resource.child.attributes["lid"] is True:
-                            lid_resource = (
-                                source_resource.child
-                            )  # a lid exists at the source location
+                        if child_resource.attributes["lid"] is True:
+                            lid_resource = source_resource.children[
+                                -1
+                            ]  # a lid exists at the source location
                         else:
                             return ActionFailed(
                                 errors=[
@@ -633,8 +630,8 @@ class SciClopsNode(RestNode):
                     target.name
                 ).resource_id
                 target_resource = self.resource_client.get_resource(target_resource_id)
-                if len(target_resource.children) == 1:
-                    plate_resource = target_resource.child
+                if len(target_resource.children) > 0:
+                    plate_resource = target_resource.children[-1]
                     if "lid_slot" in plate_resource.children:
                         if len(plate_resource.children["lid_slot"].children) != 0:
                             return ActionFailed(
@@ -669,7 +666,9 @@ class SciClopsNode(RestNode):
 
             else:
                 return ActionFailed(
-                    errors = [f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"]
+                    errors=[
+                        f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+                    ]
                 )
         else:
             self.logger.log_info(
@@ -699,14 +698,15 @@ class SciClopsNode(RestNode):
                 )
         else:
             return ActionFailed(
-                errors = [f"lid_resource or lid_slot_resource do not exist. {lid_resource=}, {lid_slot_resource=}"]
+                errors=[
+                    f"lid_resource or lid_slot_resource do not exist. {lid_resource=}, {lid_slot_resource=}"
+                ]
             )
 
-    # @action
-    # def get_current_position(self) -> list:
-    #     """Returns the location joint angles of the SciClops."""
-    #     # TODO: test this.
-    #     return self.sciclops.get_current_position()
+    @action
+    def get_current_position(self) -> list:
+        """Returns the location joint angles of the SciClops."""
+        return self.sciclops.get_current_position()
 
 
 if __name__ == "__main__":

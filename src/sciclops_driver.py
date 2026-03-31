@@ -7,24 +7,9 @@ from typing import Optional
 
 import usb.core
 import usb.util
-from pydantic import BaseModel
 from usb.core import Device
 
 from resource_helpers.resource_types import PlateResource, SciClopsLocation
-
-
-class SciClopsLocation(BaseModel):
-    """A location accessible by the PlateCrane EX"""
-
-    name: str
-    """Internal name of the location"""
-    joint_angles: dict
-    """Dictionary containing the Z, R, P, and Y joint values."""
-    location_type: str
-    """Type of location, either stack or nest. This will be used to determine gripper path for interactions with the location"""
-    safe_approach_height: Optional[int] = None
-    """A safe height (unit: integer stepper value for Z axis) from which
-    to extend the arm when approaching this location."""
 
 
 class SCICLOPS:
@@ -87,7 +72,7 @@ class SCICLOPS:
         except usb.core.USBError:
             # Device likely disconnected
             return False
-        except Exception:   # TODO: fix exception swallowing.
+        except Exception:  # TODO: fix exception swallowing.
             return False
 
     def send_command(self, command: str, wait_for_status: bool = True):
@@ -503,11 +488,11 @@ class SCICLOPS:
             self.jog("Z", -1000)
 
             # Once top of plates is touched, jog up 10, open gripper, then move down to grab plate at the correct height.
-            self.jog("Z", 100)
+            self.jog("Z", 50)
             self.gripper_open()
 
             # Jog down to grip location
-            self.jog("Z", -(100 + z_jog_down_from_plate_top))
+            self.jog("Z", -(50 + z_jog_down_from_plate_top))
 
         # If the location is a Nest....
         elif source.location_type == "nest":
@@ -535,7 +520,6 @@ class SCICLOPS:
                     + grip_height_offset
                 }
 
-            # TODO: TEST THIS!
             self.move_above_loc(
                 location_obj=source,
                 z_height=grip_z_height + 100,
