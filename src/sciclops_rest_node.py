@@ -402,6 +402,19 @@ class SciClopsNode(RestNode):
         return place_result
 
     @action()
+    def move(
+        self,
+        location: LocationArgument,
+    ) -> None:
+        """Moves the SciClops to a specified location."""
+
+        location.representation["name"] = location.location_name
+        location = SciClopsLocation.model_validate(location.representation)
+
+        self.sciclops.move_loc(location)
+        return None
+
+    @action()
     def remove_lid(
         self,
         source: LocationArgument,
@@ -488,7 +501,6 @@ class SciClopsNode(RestNode):
                     )
 
                 # Is the target location clear?
-
                 target_resource_id = self.location_client.get_location_by_name(
                     target.name
                 ).resource_id
@@ -600,10 +612,6 @@ class SciClopsNode(RestNode):
                     child_resource = source_resource.children[
                         -1
                     ]  # accounts for the source being a stack as well as a nest
-
-                    # TESTING
-                    print("CHILD -1 RESOURCE!")
-                    print(f"{child_resource=}")
 
                     if "lid" in child_resource.attributes:
                         if child_resource.attributes["lid"] is True:

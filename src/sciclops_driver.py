@@ -392,10 +392,10 @@ class SCICLOPS:
         position = self.get_current_position()
         if not all(
             [
-                abs(position[0] - Z) < 1.0,
-                abs(position[1] - R) < 1.0,
-                abs(position[2] - Y) < 1.0,
-                abs(position[3] - P) < 1.0,
+                abs(position[0] - Z) < 5.0,
+                abs(position[1] - R) < 5.0,
+                abs(position[2] - Y) < 5.0,
+                abs(position[3] - P) < 5.0,
             ]
         ):
             raise Exception(
@@ -487,12 +487,12 @@ class SCICLOPS:
             self.gripper_close()
             self.jog("Z", -1000)
 
-            # Once top of plates is touched, jog up 10, open gripper, then move down to grab plate at the correct height.
-            self.jog("Z", 50)
+            # Once top of plates is touched, jog up 100, open gripper, then move down to grab plate at the correct height.
+            self.jog("Z", 100)
             self.gripper_open()
 
             # Jog down to grip location
-            self.jog("Z", -(50 + z_jog_down_from_plate_top))
+            self.jog("Z", -(100 + z_jog_down_from_plate_top))
 
         # If the location is a Nest....
         elif source.location_type == "nest":
