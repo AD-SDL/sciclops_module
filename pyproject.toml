@@ -15,13 +15,13 @@ dependencies = [
     "pyusb",
     "libusb",
     "pyserial",
-    "madsci-node-module~=0.6.0",
-    "madsci-client~=0.6.0",
-    "madsci-common~=0.6.0",
+    "madsci-node-module~=0.8.0",
+    "madsci-client~=0.8.0",
+    "madsci-common~=0.8.0",
     "pydantic>=2.7",
     "pytest"
 ]
-requires-python = ">=3.9.1"
+requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
 

@@ -90,7 +90,7 @@ class SciClopsNode(RestNode):
             description="Template for SciClops finger gripper slot. Used to track what the gripper is holding.",
             required_overrides=["resource_name"],
             tags=["sciclops", "gripper", "slot"],
-            created_by=self.node_definition.node_id,
+            created_by=self.node_info.node_id,
             version="1.0.0",
         )
 
@@ -109,7 +109,7 @@ class SciClopsNode(RestNode):
             description="Template for SciClops lid nest Slot.",
             required_overrides=["resource_name"],
             tags=["sciclops", "slot"],
-            created_by=self.node_definition.node_id,
+            created_by=self.node_info.node_id,
             version="1.0.0",
         )
 
@@ -127,7 +127,7 @@ class SciClopsNode(RestNode):
             description="SciClops stack template.",
             required_overrides=["resource_name"],
             tags=["sciclops", "stack"],
-            created_by=self.node_definition.node_id,
+            created_by=self.node_info.node_id,
             version="1.0.0",
         )
 
@@ -135,7 +135,7 @@ class SciClopsNode(RestNode):
         # Initialize gripper resource from template
         self.gripper_resource = self.resource_client.create_resource_from_template(
             template_name="sciclops_gripper_template",
-            resource_name=f"{self.node_definition.node_name}_gripper.nest",
+            resource_name=f"{self.node_info.node_name}_gripper.nest",
             add_to_database=True,
         )
 
