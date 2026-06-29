@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from madsci.common.types.resource_types import Resource
 from pydantic import BaseModel
 
 
@@ -33,30 +34,44 @@ class SciClopsLocation(BaseModel):
     to extend the arm when approaching this location."""
 
 
-class PlateResource(BaseModel):
-    """A plate resource that can be manipulated by the PlateCrane EX"""
-
-    # Plate Properties
+class SciClopsPlate(BaseModel):
+    """A MADSci plate resource with the attributes required for use with the SciClops robotic arm."""
 
     plate_height: float
-    """The height measured from the bottom of the plate to the top"""
     grip_height: float
-    """The height at which to grip the plate, measured from the bottom of the plate"""
-    plate_height_with_lid: Optional[float] = None
-    """The height of the plate when lidded, measured from the bottom of the plate to the top of the lid.
-    Only required if the resource supports lids"""
 
-    # Lid Properties
+    plate_height_with_lid: float | None = None
+    lid_height: float | None = None
+    lid_grip_height: float | None = None
+    lid_removal_grip_height: float | None = None
 
-    lid_height: Optional[float] = None
-    """The height of the lid alone, measured from the bottom of the lid to the top of the lid"""
-    lid_grip_height: Optional[float] = None
-    """The height at which to grip the lid itself, measured from the bottom of the lid"""
-    lid_removal_grip_height: Optional[float] = None
-    """The height at which to grip the lid when removing it, measured from the bottom of the lidded plate"""
+    has_lid: bool
+    is_lid: bool
 
-    @staticmethod
-    def convert_to_steps(plate_measurement_in_mm: float) -> int:
-        """Converts plate measurements in mm to PlateCrane EX motor steps on the z-axis"""
-        steps_per_mm = 80.5
-        return int(plate_measurement_in_mm * steps_per_mm)
+    @classmethod
+    def from_resource(cls, resource: Resource):
+        """Validates that a plate resource contains the correct attributes to be SciClops compatible."""
+
+        attrs = resource.attributes
+
+        is_lid = resource.attributes.get("lid", False)
+        has_lid = False
+
+        if not is_lid:
+            lid_slot = resource.children.get("lid_slot")
+            if lid_slot is not None:
+                print("There is a lid slot!")
+                has_lid = any(
+                    child.attributes.get("lid", False) for child in lid_slot.children
+                )
+
+        return cls(
+            plate_height=attrs["plate_height"],
+            grip_height=attrs["sciclops_grip_height"],
+            plate_height_with_lid=attrs.get("plate_height_with_lid"),
+            lid_height=attrs.get("lid_height"),
+            lid_grip_height=attrs.get("sciclops_lid_grip_height"),
+            lid_removal_grip_height=attrs.get("sciclops_lid_removal_grip_height"),
+            has_lid=has_lid,
+            is_lid=is_lid,
+        )

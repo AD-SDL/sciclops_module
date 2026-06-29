@@ -7,9 +7,13 @@ from typing import Optional
 
 import usb.core
 import usb.util
+from madsci.common.types.resource_types import Resource
 from usb.core import Device
 
-from resource_helpers.resource_types import PlateResource, SciClopsLocation
+from resource_helpers.resource_types import (
+    SciClopsLocation,
+    SciClopsPlate,
+)
 
 
 class SCICLOPS:
@@ -23,9 +27,6 @@ class SCICLOPS:
 
     def __init__(self, vendor_id=0x7513, product_id=0x0002):
         """Creates a new SCICLOPS driver object. The default VENDOR_ID and PRODUCT_ID are for the Sciclops robot."""
-
-        # TESTING
-        print("INIT CALLED")
 
         # Set variables.
         self.vendor_id = vendor_id
@@ -41,9 +42,7 @@ class SCICLOPS:
 
         # Connect.
         self.usb_connection: Device = self.connect_sciclops()
-        print("CONNECTED SCICLOPS")
         self.status_code = self.get_status()
-        print("GETTING STATUS")
 
     def __del__(self):
         """Destructor for the SCICLOPS driver. Disconnects from the Sciclops robot."""
@@ -442,15 +441,19 @@ class SCICLOPS:
     def pick_plate_direct(
         self,
         source: SciClopsLocation,
-        plate_type: PlateResource,
-        has_lid: bool,
-        is_lid: bool,
-        grip_height_offset: Optional[float] = 0,
+        plate_resource: Resource,
+        lid_resource: Resource = None,
+        removing_lid: bool = False,
+        replacing_lid: bool = False,
         incremental_lift: bool = False,
     ) -> None:
         """
         Grabs labware from the provided location
         """
+
+        # Extract details from plate resource
+        plate = SciClopsPlate.from_resource(plate_resource)
+
         # Reset with gripper high and open.
         self.gripper_open()
         self.set_speed(50)
@@ -465,36 +468,32 @@ class SCICLOPS:
         if source.location_type == "stack":
             # Calculate grip height from top of plate
             z_jog_down_from_plate_top = None
-            if has_lid is True and is_lid is False:
-                # Transferring labware with a lid
-                z_jog_down_from_plate_top = (
-                    plate_type.plate_height_with_lid
-                    - plate_type.grip_height
-                    - grip_height_offset
-                )
-            elif has_lid is False and is_lid is False:
-                # Transferring labware without a lid
-                z_jog_down_from_plate_top = (
-                    plate_type.plate_height
-                    - plate_type.grip_height
-                    - grip_height_offset
-                )
-            elif has_lid is True and is_lid is True:
+
+            if removing_lid:
                 # Removing a lid from labware
-                z_jog_down_from_plate_top = (
-                    plate_type.plate_height
-                    - plate_type.grip_height
-                    - grip_height_offset
+                # z_jog_down_from_plate_top = (
+                #     plate.plate_height
+                #     - plate.grip_height
+                # - grip_height_offset
+                # )
+                z_jog_down_from_plate_top = (  # TESTING
+                    plate.plate_height_with_lid - plate.lid_removal_grip_height
                 )
+            # TODO: REDO THESE AND CHECK THAT THEY STILL WORK
             else:
-                # When has_lid is False and is_lid is True
-                # Transferring a lid only, without base labware
-                # For stacks, this would mean we're grabbing a lid from a stack of lids... unlikely
-                z_jog_down_from_plate_top = (
-                    plate_type.lid_height
-                    - plate_type.lid_grip_height
-                    - grip_height_offset
-                )
+                if plate.has_lid is True and plate.is_lid is False:
+                    # Transferring labware with a lid
+                    z_jog_down_from_plate_top = (
+                        plate.plate_height_with_lid - plate.grip_height
+                    )
+                elif plate.has_lid is False and plate.is_lid is False:
+                    # Transferring labware without a lid
+                    z_jog_down_from_plate_top = plate.plate_height - plate.grip_height
+
+                else:
+                    # Transferring a lid only, without base labware
+                    # For stacks, this would mean we're grabbing a lid from a stack of lids... unlikely
+                    z_jog_down_from_plate_top = plate.lid_height - plate.lid_grip_height
 
             # Jog down to touch the top of the stacked plates.
             self.set_speed(10)
@@ -512,27 +511,18 @@ class SCICLOPS:
         elif source.location_type == "nest":
             # Calculate grip height from base of the nest (source's Z joint angle)
             grip_z_height = None
-            if is_lid is False:
-                # Transferring labware with or without a lid (grip height of base is the same)
-                grip_z_height = (
-                    source.joint_angles["Z"]
-                    + plate_type.grip_height
-                    + grip_height_offset
-                )
-            elif has_lid is True:
+
+            if removing_lid:
                 # Removing the lid from labware
-                grip_z_height = (
-                    source.joint_angles["Z"]
-                    + plate_type.lid_removal_grip_height
-                    + grip_height_offset
-                )
-            else:  # has_lid is False
+                grip_z_height = source.joint_angles["Z"] + plate.lid_removal_grip_height
+
+            elif replacing_lid:
                 # Transferring just a lid without the base labware
-                grip_z_height = {
-                    source.joint_angles["Z"]
-                    + plate_type.lid_grip_height
-                    + grip_height_offset
-                }
+                grip_z_height = source.joint_angles["Z"] + plate.lid_grip_height
+
+            else:
+                # Transferring labware with or without a lid (grip height of base is the same)
+                grip_z_height = source.joint_angles["Z"] + plate.grip_height
 
             self.move_above_loc(
                 location_obj=source,
@@ -555,20 +545,23 @@ class SCICLOPS:
         self.move_above_loc(location_obj=source)
         if self.check_closed():
             raise Exception(
-                f"Failed to pick labware from {source.name} at height {plate_type.grip_height}: no plate detected."
+                f"Failed to pick labware from {source.name} at height {plate.grip_height}: no plate detected."
             )
 
     def place_plate_direct(
         self,
         target: SciClopsLocation,
-        plate_type: PlateResource,
-        is_lid: bool,
-        replacing_lid: bool,
-        grip_height_offset: Optional[float] = 0,
+        plate_resource: Resource,
+        lid_resource: Resource = None,
+        removing_lid: bool = False,
+        replacing_lid: bool = False,
     ):
         """
         Places labware in the provided location
         """
+        # Extract details from plate resource
+        plate = SciClopsPlate.from_resource(plate_resource)
+
         self.set_speed(20)
         self.move_above_loc(location_obj=target)
 
@@ -580,36 +573,23 @@ class SCICLOPS:
             self.gripper_open()
             self.set_speed(50)
             self.jog("Z", 1000)
+
         elif target.location_type == "nest":
             # Calculate place z-height
             place_z_height = None
-            if replacing_lid is True:
-                if is_lid is True:
-                    # Replacing the lid on labware
-                    place_z_height = (
-                        target.joint_angles["Z"]
-                        + plate_type.lid_removal_grip_height
-                        + grip_height_offset
-                    )
-                else:  # is_lid is False
-                    raise ValueError(
-                        "The condition where is_lid is False and replacing_lid is True does not make sense."
-                    )
-            elif is_lid is True:
+
+            if replacing_lid:
+                place_z_height = (
+                    target.joint_angles["Z"] + plate.lid_removal_grip_height
+                )
+
+            elif removing_lid:
                 # Transferring just a lid without the base labware
-                place_z_height = (
-                    target.joint_angles["Z"]
-                    + plate_type.lid_grip_height
-                    + grip_height_offset
-                )
-            else:  # is_lid is False
+                place_z_height = target.joint_angles["Z"] + plate.lid_grip_height
+            else:
                 # Transferring labware with or without a lid
-                place_z_height = (
-                    target.joint_angles["Z"]
-                    + plate_type.grip_height
-                    + grip_height_offset
-                )
-            # TODO: TEST THIS!
+                place_z_height = target.joint_angles["Z"] + plate.grip_height
+
             self.move_above_loc(
                 location_obj=target,
                 z_height=place_z_height + 10,
@@ -628,51 +608,52 @@ class SCICLOPS:
         self,
         source: str,
         target: str,
-        plate_type: PlateResource,
-        grip_height_offset: Optional[float] = 0,
+        plate_resource: Resource,
+        lid_resource: Resource,
     ):
         """
         Removes lid from a plate
         """
+
         self.pick_plate_direct(
             source=source,
-            plate_type=plate_type,
-            has_lid=True,
-            is_lid=True,
-            grip_height_offset=grip_height_offset,
+            plate_resource=plate_resource,
+            lid_resource=lid_resource,
+            removing_lid=True,
+            replacing_lid=False,
             incremental_lift=True,
         )
         self.place_plate_direct(
             target=target,
-            plate_type=plate_type,
-            is_lid=True,
+            plate_resource=plate_resource,
+            lid_resource=lid_resource,
+            removing_lid=True,
             replacing_lid=False,
-            grip_height_offset=grip_height_offset,
         )
 
     def replace_lid(
         self,
         source: SciClopsLocation,
         target: SciClopsLocation,
-        plate_type: PlateResource,
-        grip_height_offset: Optional[float] = 0,
+        plate_resource: Resource,
+        lid_resource: Resource,
     ):
         """
         Places lid on a plate
         """
         self.pick_plate_direct(
             source=source,
-            plate_type=plate_type,
-            is_lid=True,
-            has_lid=False,
-            grip_height_offset=grip_height_offset,
+            plate_resource=plate_resource,
+            lid_resource=lid_resource,
+            replacing_lid=True,
+            removing_lid=False,
         )
         self.place_plate_direct(
             target=target,
-            plate_type=plate_type,
-            is_lid=True,
+            plate_resource=plate_resource,
+            lid_resource=lid_resource,
             replacing_lid=True,
-            grip_height_offset=grip_height_offset,
+            removing_lid=False,
         )
 
     def limp(self, limp_bool: bool) -> None:

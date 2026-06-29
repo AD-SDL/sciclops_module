@@ -10,40 +10,58 @@ from madsci.common.types.node_types import (
     NodeRepresentationTemplateDefinition,
     RestNodeConfig,
 )
-from madsci.common.types.resource_types import Collection, Resource, Slot, Stack
+from madsci.common.types.resource_types import Slot, Stack
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
 
-from resource_helpers.sciclops_resource_defs import plate_definitions
 from sciclops_driver import SCICLOPS, SciClopsLocation
 
 # """
 # TODO:
-# - Add all the SciClops locations to the location client!
 # - BUG: replacing lid onto nest from stack, sciclops grabs way too low on the z-axis.
 # - Separate out plate type checks for compliance to another helper method
 
 
 # Below is the plate with lid standard that I'm working with:
 
-#         # # TESTING (create a properly formatted plate resource with lid slot)
-#         # test_lid = Resource(
-#         #     resource_name = "TEST_LID",
-#         #     attributes={
-#         #         "lid": True
-#         #     }
-#         # )
-#         # test_plate_resource = Collection(
-#         #     resource_name = "FORMATTED_TEST_PLATE3",
-#         #     capacity=2,
-#         #     children={
-#         #         "lid_slot": Slot(
-#         #             resource_name = "lid slot resource on test plate",
-#         #             children=[test_lid]
-#         #         )
-#         #     }
-#         # )
-#         # self.resource_client.add_resource(test_plate_resource)
+# test_lid = Resource(
+#     resource_name = "TEST_LID",
+#     attributes={
+#         "lid": True
+#     }
+# )
+
+# plate = Collection(
+#     resource_id="01K7T1QAXCMSAJ3MAK2GAS24ZK",
+#     resource_name="CORRECT_ATTRIBUTES_PLATE",
+#     resource_class="Microplate",
+#     attributes={
+#         # Common attributes
+#         "plate_height": 14,
+#         "lid_height": 10,
+#         "plate_height_with_lid": 16,
+#         "description": "96-well microplate with or without lid",
+
+#         # PF400 specific attributes
+#         "pf400_lid_grip_height":10,
+#         "pf400_grip_height": 3,
+#         "pf400_grip_height_offset": 3,
+
+#         # SciClops specific attributes
+#         "sciclops_grip_height": 1,
+#         "sciclops_lid_grip_height": 4,
+#         "sciclops_lid_removal_grip_height": 12,
+#     },
+#     children={
+#         "lid_slot": Slot(
+#             resource_name = "lid slot resource on test plate",
+#             children=[test_lid]
+#         )
+#     }
+# )
+
+# plate = resource_client.add_or_update_resource(plate)
+# print(f"Plate created with attributes: {plate.resource_id}")
 
 
 # """
@@ -319,34 +337,6 @@ class SciClopsNode(RestNode):
             add_to_database=True,
         )
 
-    def _create_test_plate(self):
-        """USED FOR TESTING."""
-        test_lid = Resource(resource_name="TEST_LID", attributes={"lid": True})
-
-        # PLATE 1
-        test_plate_resource = Collection(
-            resource_name="FORMATTED_TEST_PLATE1",
-            capacity=2,
-            children={
-                "lid_slot": Slot(
-                    resource_name="lid slot resource on test plate", children=[test_lid]
-                )
-            },
-        )
-        self.resource_client.add_resource(test_plate_resource)
-
-        # PLATE 2
-        test_plate_resource = Collection(
-            resource_name="FORMATTED_TEST_PLATE2",
-            capacity=2,
-            children={
-                "lid_slot": Slot(
-                    resource_name="lid slot resource on test plate", children=[test_lid]
-                )
-            },
-        )
-        self.resource_client.add_resource(test_plate_resource)
-
     @action()
     def home(self) -> None:
         """Homes the SciClops."""
@@ -356,10 +346,6 @@ class SciClopsNode(RestNode):
     def pick(
         self,
         source: LocationArgument,
-        plate_type: Optional[str] = None,
-        height_offset: Annotated[int, "Height offset in mm"] = 0,
-        is_lid: Annotated[bool, "Is the labware a lid?"] = False,
-        has_lid: Annotated[bool, "Does the labware have a lid?"] = False,
         incremental_lift: Annotated[bool, "Incremental lift during transfer"] = False,
     ) -> None:
         """Picks labware from a location, ending in the PlateCrane gripper."""
@@ -368,16 +354,6 @@ class SciClopsNode(RestNode):
         # TODO: Catch error and return ActionFailed
         source.representation["name"] = source.location_name
         source = SciClopsLocation.model_validate(source.representation)
-
-        # Extract plate definition
-        try:
-            plate_def = plate_definitions[plate_type]
-        except Exception as e:
-            return ActionFailed(
-                errors=[
-                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
-                ]
-            )
 
         # Check state of resources in ResourceClient.
         plate_resource = None
@@ -415,10 +391,7 @@ class SciClopsNode(RestNode):
         # Physically pick the plate.
         self.sciclops.pick_plate_direct(
             source=source,
-            plate_type=plate_def,
-            grip_height_offset=height_offset,
-            is_lid=is_lid,
-            has_lid=has_lid,
+            plate_resource=plate_resource,
             incremental_lift=incremental_lift,
         )
 
@@ -435,25 +408,12 @@ class SciClopsNode(RestNode):
     def place(
         self,
         target: LocationArgument,
-        plate_type: Optional[str] = None,
-        height_offset: Annotated[int, "Height offset in mm."] = 0,
-        is_lid: Annotated[bool, "Is the plate a lid?"] = False,
-        replacing_lid: Annotated[bool, "Are you replacing a lid?"] = False,
+        # replacing_lid: Annotated[bool, "Are you replacing a lid?"] = False,
     ) -> None:
         """Places labware at a location."""
 
         target.representation["name"] = target.location_name
         target = SciClopsLocation.model_validate(target.representation)
-
-        # Extract plate definition
-        try:
-            plate_def = plate_definitions[plate_type]
-        except Exception as e:
-            return ActionFailed(
-                errors=[
-                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
-                ]
-            )
 
         # Check state of resources in ResourceClient.
         plate_resource = None
@@ -493,10 +453,7 @@ class SciClopsNode(RestNode):
         # Physically place the plate.
         self.sciclops.place_plate_direct(
             target=target,
-            plate_type=plate_def,
-            is_lid=is_lid,
-            replacing_lid=replacing_lid,
-            grip_height_offset=height_offset,
+            plate_resource=plate_resource,
         )
 
         # Push plate resource into target resource as child.
@@ -512,20 +469,12 @@ class SciClopsNode(RestNode):
         self,
         source: LocationArgument,
         target: LocationArgument,
-        plate_type: Optional[str] = None,
-        source_height_offset: Annotated[int, "Height offset in mm."] = 0,
-        target_height_offset: Annotated[int, "Height offset in mm."] = 0,
-        has_lid: Annotated[bool, "Does the plate have a lid?"] = False,
     ) -> None:
         """Transfers a plate from one location to another."""
 
         # Pick the plate.
         pick_result = self.pick(
             source=source,
-            plate_type=plate_type,
-            height_offset=source_height_offset,
-            is_lid=False,  # assuming this transfer funtion is for the main labware. Remove/replace lid works for lids.
-            has_lid=has_lid,
         )
         if pick_result is not None:
             # Return any ActionFailed response received.
@@ -535,10 +484,6 @@ class SciClopsNode(RestNode):
         # Place the plate.
         place_result = self.place(
             target=target,
-            plate_type=plate_type,
-            height_offset=target_height_offset,
-            is_lid=False,  # assuming we're not using this transfer function to move lids.
-            replacing_lid=False,
         )
         return place_result
 
@@ -560,10 +505,6 @@ class SciClopsNode(RestNode):
         self,
         source: LocationArgument,
         target: LocationArgument,
-        plate_type: Annotated[
-            str, "Type of plate, e.g. 'flat_bottom_96well' or 'deep_96well"
-        ],
-        height_offset: Annotated[int, "Height offset in motor steps"] = 0,
         ignore_resource_checks: Annotated[
             bool, "True to ignore ResourceClient validations, False otherwise."
         ] = False,
@@ -576,16 +517,6 @@ class SciClopsNode(RestNode):
         target.representation["name"] = target.location_name
         source = SciClopsLocation.model_validate(source.representation)
         target = SciClopsLocation.model_validate(target.representation)
-
-        # Extract plate definition
-        try:
-            plate_def = plate_definitions[plate_type]
-        except Exception as e:
-            return ActionFailed(
-                errors=[
-                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
-                ]
-            )
 
         # Complete MADSci resource checks.
         lid_resource = None
@@ -676,8 +607,8 @@ class SciClopsNode(RestNode):
         self.sciclops.remove_lid(
             source=source,
             target=target,
-            plate_type=plate_def,
-            grip_height_offset=height_offset,
+            plate_resource=plate_resource,
+            lid_resource=lid_resource,
         )
 
         # transfer the lid resource
@@ -704,10 +635,6 @@ class SciClopsNode(RestNode):
         self,
         source: LocationArgument,
         target: LocationArgument,
-        plate_type: Annotated[
-            str, "Type of plate, e.g. 'flat_bottom_96well' or 'deep_96well'"
-        ],
-        height_offset: Annotated[int, "Height offset in motor steps"] = 0,
         ignore_resource_checks: Annotated[
             bool, "True to ignore ResourceClient validations, False otherwise."
         ] = False,
@@ -720,16 +647,6 @@ class SciClopsNode(RestNode):
         target.representation["name"] = target.location_name
         source = SciClopsLocation.model_validate(source.representation)
         target = SciClopsLocation.model_validate(target.representation)
-
-        # Extract plate definition.
-        try:
-            plate_def = plate_definitions[plate_type]
-        except Exception as e:
-            return ActionFailed(
-                errors=[
-                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
-                ]
-            )
 
         # Complete MADSci resource checks.
         lid_resource = None
@@ -827,8 +744,8 @@ class SciClopsNode(RestNode):
         self.sciclops.replace_lid(
             source=source,
             target=target,
-            plate_type=plate_def,
-            grip_height_offset=height_offset,
+            lid_resource=lid_resource,
+            plate_resource=plate_resource,
         )
 
         # Transfer the lid resource
