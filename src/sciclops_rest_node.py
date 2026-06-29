@@ -1,11 +1,15 @@
 #! /usr/bin/env python3
 """The server for the Hudson Platecrane/Sciclops that takes incoming WEI flow requests from the experiment application"""
 
-from typing import Annotated, Optional
+from typing import Annotated, ClassVar, Optional
 
 from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.location_types import LocationArgument
-from madsci.common.types.node_types import RestNodeConfig
+from madsci.common.types.node_types import (
+    NodeIntrinsicLocationDefinition,
+    NodeRepresentationTemplateDefinition,
+    RestNodeConfig,
+)
 from madsci.common.types.resource_types import Collection, Resource, Slot, Stack
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
@@ -13,37 +17,36 @@ from madsci.node_module.rest_node_module import RestNode
 from resource_helpers.sciclops_resource_defs import plate_definitions
 from sciclops_driver import SCICLOPS, SciClopsLocation
 
-"""
-TODO:
-- Add all the SciClops locations to the location client!
-- BUG: replacing lid onto nest from stack, sciclops grabs way too low on the z-axis.
-- Separate out plate type checks for compliance to another helper method
+# """
+# TODO:
+# - Add all the SciClops locations to the location client!
+# - BUG: replacing lid onto nest from stack, sciclops grabs way too low on the z-axis.
+# - Separate out plate type checks for compliance to another helper method
 
 
+# Below is the plate with lid standard that I'm working with:
 
-Below is the plate with lid standard that I'm working with:
-
-        # # TESTING (create a properly formatted plate resource with lid slot)
-        # test_lid = Resource(
-        #     resource_name = "TEST_LID",
-        #     attributes={
-        #         "lid": True
-        #     }
-        # )
-        # test_plate_resource = Collection(
-        #     resource_name = "FORMATTED_TEST_PLATE3",
-        #     capacity=2,
-        #     children={
-        #         "lid_slot": Slot(
-        #             resource_name = "lid slot resource on test plate",
-        #             children=[test_lid]
-        #         )
-        #     }
-        # )
-        # self.resource_client.add_resource(test_plate_resource)
+#         # # TESTING (create a properly formatted plate resource with lid slot)
+#         # test_lid = Resource(
+#         #     resource_name = "TEST_LID",
+#         #     attributes={
+#         #         "lid": True
+#         #     }
+#         # )
+#         # test_plate_resource = Collection(
+#         #     resource_name = "FORMATTED_TEST_PLATE3",
+#         #     capacity=2,
+#         #     children={
+#         #         "lid_slot": Slot(
+#         #             resource_name = "lid slot resource on test plate",
+#         #             children=[test_lid]
+#         #         )
+#         #     }
+#         # )
+#         # self.resource_client.add_resource(test_plate_resource)
 
 
-"""
+# """
 
 
 class SciClopsConfig(RestNodeConfig):
@@ -64,6 +67,144 @@ class SciClopsNode(RestNode):
     """The default configuration for the SciClops REST Node."""
     module_version: str = "2.1.0"
     """The version of the SciClops REST Node module."""
+
+    # Location representation templates — registered automatically by template_handler()
+    location_representation_templates: ClassVar[
+        list[NodeRepresentationTemplateDefinition]
+    ] = [
+        NodeRepresentationTemplateDefinition(
+            template_name="sciclops_deck_location_template",
+            default_values={"gripper_config": "standard"},
+            schema_def={
+                "type": "object",
+                "properties": {
+                    "joint_angles": {
+                        "type": "object",
+                        "properties": {
+                            "Z": {"type": "number"},
+                            "R": {"type": "number"},
+                            "Y": {"type": "number"},
+                            "P": {"type": "number"},
+                        },
+                        "required": ["Z", "R", "Y", "P"],
+                        "description": "Joint angles of the SciClops robotic arm.",
+                    },
+                    "location_type": {
+                        "type": "string",
+                        "enum": ["nest", "stack"],
+                        "description": "Location type, stack (capacity > 0), or nest (capacity = 1)",
+                    },
+                    "safe_approach_height": {
+                        "type": "number",
+                        "description": "Safe approach height to approach nest locations, used if the SciClops cannot approach the location at highest Z-height.",
+                    },
+                },
+                "required": ["joint_angles", "location_type"],
+            },
+            required_overrides=["location", "plate_rotation"],
+            tags=["sciclops"],
+            version="1.1.0",
+            description="SciClops location representation with joint angle values",
+        ),
+    ]
+
+    location_representation_templates: ClassVar[
+        list[NodeRepresentationTemplateDefinition]
+    ] = [
+        NodeRepresentationTemplateDefinition(
+            template_name="lid_nest_repr",
+            default_values={"carriage_type": "standard", "capacity": 1},
+            schema_def={
+                "type": "object",
+                "properties": {
+                    "capacity": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Number of plates the nest can hold",
+                    },
+                },
+            },
+            required_overrides=[],
+            tags=["nest", "lid_nest"],
+            version="1.0.0",
+            description="SciClops lid nest representation with capacity",
+        ),
+        NodeRepresentationTemplateDefinition(
+            template_name="stack_repr",
+            default_values={"location_type": "stack"},
+            schema_def={
+                "type": "object",
+                "properties": {},
+            },
+            required_overrides=[],
+            tags=["stack"],
+            version="1.0.0",
+            description="SciClops stack representation",
+        ),
+    ]
+
+    # Intrinsic locations — auto-created on startup with '{node_name}.' prefix
+    intrinsic_locations: ClassVar[list[NodeIntrinsicLocationDefinition]] = [
+        # lid nests
+        NodeIntrinsicLocationDefinition(
+            location_name="lid_nest_1",
+            description="SciClops lid nest 1 location.",
+            representation_template_name="lid_nest_repr",
+            resource_template_name="lid_nest_slot",
+            allow_transfers=True,
+        ),
+        NodeIntrinsicLocationDefinition(
+            location_name="lid_nest_2",
+            description="SciClops lid nest 2 location.",
+            representation_template_name="lid_nest_repr",
+            resource_template_name="lid_nest_slot",
+            allow_transfers=True,
+        ),
+        # stacks
+        NodeIntrinsicLocationDefinition(
+            location_name="stack_1",
+            description="SciClops stack 1 location.",
+            representation_template_name="stack_repr",
+            resource_template_name="sciclops_stack",
+            allow_transfers=True,
+        ),
+        NodeIntrinsicLocationDefinition(
+            location_name="stack_2",
+            description="SciClops stack 2 location.",
+            representation_template_name="stack_repr",
+            resource_template_name="sciclops_stack",
+            allow_transfers=True,
+        ),
+        NodeIntrinsicLocationDefinition(
+            location_name="stack_3",
+            description="SciClops stack 3 location.",
+            representation_template_name="stack_repr",
+            resource_template_name="sciclops_stack",
+            allow_transfers=True,
+        ),
+        NodeIntrinsicLocationDefinition(
+            location_name="stack_4",
+            description="SciClops stack 4 location.",
+            representation_template_name="stack_repr",
+            resource_template_name="sciclops_stack",
+            allow_transfers=True,
+        ),
+        NodeIntrinsicLocationDefinition(
+            location_name="stack_5",
+            description="SciClops stack 5 location.",
+            representation_template_name="stack_repr",
+            resource_template_name="sciclops_stack",
+            allow_transfers=True,
+        ),
+        # safe
+        NodeIntrinsicLocationDefinition(
+            location_name="safe",
+            description="SciClops safe location. Prevents collisions with other robotic arms.",
+            representation_template_name="lid_nest_repr",
+            resource_template_name="lid_nest_slot",
+            allow_transfers=False,
+        ),
+    ]
 
     def startup_handler(self):
         """Initializes the SciClops driver at node startup."""
@@ -287,7 +428,7 @@ class SciClopsNode(RestNode):
                 resource=self.gripper_resource, child=plate_resource
             )
 
-        # If sucessful, return None.
+        # # If sucessful, return None.
         return None
 
     @action()

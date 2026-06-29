@@ -373,7 +373,7 @@ class SCICLOPS:
         Deletes point from listpoints function - NOT USED!
         """
         return self.send_command(f"DELETEPOINT {name}\r\n")
-    
+
     # def move_safe(self, R: float, Z: float, P: float, Y: float):
     #     """
     #     jogs the axes in a safer order than the internal move command, retracts the arm and moves arm to top before swinging
@@ -386,9 +386,6 @@ class SCICLOPS:
     #     self.jog("Y", 10) #TODO: get safe arm Y value
 
     #     #rotate to target
-
-
-
 
     def move(self, R: float, Z: float, P: float, Y: float):
         """
