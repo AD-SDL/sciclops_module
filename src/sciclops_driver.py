@@ -87,8 +87,6 @@ class SCICLOPS:
             while self.read_usb(timeout=100):
                 continue
 
-            print("<<<")
-            print(f"Sending command: {command.strip()}")
             self.usb_connection.write(4, command)
 
             # * Wait for ACK from Sciclops (Sciclops will send back the command it received)
@@ -112,10 +110,6 @@ class SCICLOPS:
             # * Read any additional data
             while temp_buffer := self.read_usb():
                 response_buffer += temp_buffer
-
-            print("Response:")
-            print(response_buffer)
-            print(">>>")
 
             return response_buffer
 
@@ -373,19 +367,6 @@ class SCICLOPS:
         """
         return self.send_command(f"DELETEPOINT {name}\r\n")
 
-    # def move_safe(self, R: float, Z: float, P: float, Y: float):
-    #     """
-    #     jogs the axes in a safer order than the internal move command, retracts the arm and moves arm to top before swinging
-    #     """
-
-    #     #raise arm
-    #     self.jog("Z", self.safe_z_height)
-
-    #     #retract arm
-    #     self.jog("Y", 10) #TODO: get safe arm Y value
-
-    #     #rotate to target
-
     def move(self, R: float, Z: float, P: float, Y: float):
         """
         Moves to specified coordinates
@@ -459,7 +440,6 @@ class SCICLOPS:
         self.set_speed(50)
         self.jog("Z", 1000)
         self.jog("Y", -1000)
-        self.jog("R", source.joint_angles["R"])
 
         # Move above the source location.
         self.move_above_loc(location_obj=source)
@@ -470,13 +450,7 @@ class SCICLOPS:
             z_jog_down_from_plate_top = None
 
             if removing_lid:
-                # Removing a lid from labware
-                # z_jog_down_from_plate_top = (
-                #     plate.plate_height
-                #     - plate.grip_height
-                # - grip_height_offset
-                # )
-                z_jog_down_from_plate_top = (  # TESTING
+                z_jog_down_from_plate_top = (
                     plate.plate_height_with_lid - plate.lid_removal_grip_height
                 )
             # TODO: REDO THESE AND CHECK THAT THEY STILL WORK

@@ -178,6 +178,14 @@ class SciClopsNode(RestNode):
             resource_template_name="lid_nest_slot",
             allow_transfers=True,
         ),
+        # exchange nest
+        NodeIntrinsicLocationDefinition(
+            location_name="exchange",
+            description="SciClops exchange nest location.",
+            representation_template_name="lid_nest_repr",
+            resource_template_name="lid_nest_slot",
+            allow_transfers=True,
+        ),
         # stacks
         NodeIntrinsicLocationDefinition(
             location_name="stack_1",
@@ -307,6 +315,13 @@ class SciClopsNode(RestNode):
         self.lidnest_5 = self.resource_client.create_resource_from_template(
             template_name="sciclops_lid_nest_slot_template",
             resource_name="lidnest_5_sciclops",
+            add_to_database=True,
+        )
+
+        # Initialize SciClops exchange nest
+        self.exchange = self.resource_client.create_resource_from_template(
+            template_name="sciclops_lid_nest_slot_template",
+            resource_name="sciclops_exchange",
             add_to_database=True,
         )
 
@@ -498,6 +513,15 @@ class SciClopsNode(RestNode):
         location = SciClopsLocation.model_validate(location.representation)
 
         self.sciclops.move_loc(location)
+        return None
+
+    @action()
+    def limp(
+        self,
+        limp: bool = True,
+    ) -> None:
+        """Sets the SciClops to limp mode if limp argument is True, turns off limp mode if limp argument is False."""
+        self.sciclops.limp(limp_bool=limp)
         return None
 
     @action()

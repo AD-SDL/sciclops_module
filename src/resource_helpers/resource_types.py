@@ -1,23 +1,9 @@
-"""This module contains the Pydantic models for the PlateCrane resource types"""
+"""This module contains the Pydantic models for the SciClops resource types"""
 
 from typing import Optional
 
 from madsci.common.types.resource_types import Resource
 from pydantic import BaseModel
-
-
-class PlateCraneLocation(BaseModel):
-    """A location accessible by the PlateCrane EX"""
-
-    name: str
-    """Internal name of the location"""
-    joint_angles: list[int]
-    """List of 4 joint angles (unit: integer stepper values)"""
-    location_type: str
-    """Type of location, either stack or nest. This will be used to determine gripper path for interactions with the location"""
-    safe_approach_height: Optional[int] = None
-    """A safe height (unit: integer stepper value for Z axis) from which
-    to extend the arm when approaching this location."""
 
 
 class SciClopsLocation(BaseModel):

@@ -1,4 +1,4 @@
-"""Resource definitions for the Hudson SciClops in RAPID 446."""
+"""Resource definitions for the Hudson SciClops in RAPID 446. - DEPRICATED! TODO: DELETE"""
 
 from resource_helpers.resource_types import PlateResource
 
