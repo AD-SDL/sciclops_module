@@ -371,9 +371,9 @@ class SCICLOPS:
         """
         Moves to specified coordinates
         """
-
         self.loadpoint("TEMP", R, Z, P, Y)
         response = self.send_command("MOVE TEMP\r\n")
+
         if status := self.get_status() != "1":
             raise Exception(f"Move failed, status code {status}")
         response_codes = self.get_response_codes(response)
@@ -440,6 +440,14 @@ class SCICLOPS:
         self.set_speed(50)
         self.jog("Z", 1000)
         self.jog("Y", -1000)
+
+        # Rotate to source with retracted arm (Y)
+        self.move(
+            R=source.joint_angles["R"],
+            Z=15,  # high Z
+            Y=0,  # retracted Y
+            P=source.joint_angles["P"],
+        )
 
         # Move above the source location.
         self.move_above_loc(location_obj=source)
@@ -515,8 +523,11 @@ class SCICLOPS:
             self.jog("Z", 10)
             self.jog("Z", 10)
             self.jog("Z", 10)
+
         self.set_speed(20)
         self.move_above_loc(location_obj=source)
+        self.jog("Y", -1000)
+
         if self.check_closed():
             raise Exception(
                 f"Failed to pick labware from {source.name} at height {plate.grip_height}: no plate detected."
@@ -536,7 +547,15 @@ class SCICLOPS:
         # Extract details from plate resource
         plate = SciClopsPlate.from_resource(plate_resource)
 
+        # Rotate to target with retracted arm (Y)
         self.set_speed(20)
+        self.move(
+            R=target.joint_angles["R"],
+            Z=15,  # a high Z
+            Y=0,  # retracted Y
+            P=target.joint_angles["P"],
+        )
+
         self.move_above_loc(location_obj=target)
 
         if target.location_type == "stack":
@@ -576,7 +595,9 @@ class SCICLOPS:
             self.gripper_open()
             self.set_speed(50)
             self.jog("Z", 1000)
+
         self.move_above_loc(target)
+        self.jog("Y", -1000)
 
     def remove_lid(
         self,

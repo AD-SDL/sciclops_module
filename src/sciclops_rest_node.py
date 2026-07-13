@@ -512,7 +512,23 @@ class SciClopsNode(RestNode):
         location.representation["name"] = location.location_name
         location = SciClopsLocation.model_validate(location.representation)
 
+        # Lift the arm up to a safe height
+        self.sciclops.set_speed(50)
+        self.sciclops.jog("Z", 1000)
+        self.sciclops.jog("Y", -1000)
+
+        # Rotate to source with retracted arm (Y)
+        self.sciclops.move(
+            R=location.joint_angles["R"],
+            Z=15,  # a high Z
+            Y=0,  # retracted Y
+            P=location.joint_angles["P"],
+        )
+
+        # Move above then down to the location
+        self.sciclops.move_above_loc(location_obj=location)
         self.sciclops.move_loc(location)
+
         return None
 
     @action()
@@ -548,6 +564,7 @@ class SciClopsNode(RestNode):
         source_resource = None
         target_resource = None
         if not ignore_resource_checks:
+            # TODO: Edit this to not throw error and take down node if resource has no attribute child.
             # TODO: Validate plate resource structure conformity with a Pydantic model.
             if (self.resource_client is not None) and (
                 self.location_client is not None
