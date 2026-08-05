@@ -1,380 +1,722 @@
 #! /usr/bin/env python3
-"""REST-based node for Sciclops robots"""
+"""The server for the Hudson Platecrane/Sciclops that takes incoming WEI flow requests from the experiment application"""
 
-from typing import Any, Optional
+from typing import Annotated, Optional
 
-from madsci.common.types.admin_command_types import AdminCommandResponse
+from madsci.common.types.action_types import ActionFailed
 from madsci.common.types.location_types import LocationArgument
 from madsci.common.types.node_types import RestNodeConfig
-from madsci.common.types.resource_types import Slot, Stack
+from madsci.common.types.resource_types import Collection, Resource, Slot, Stack
 from madsci.node_module.helpers import action
 from madsci.node_module.rest_node_module import RestNode
-from typing_extensions import Annotated
 
-from sciclops_interface import SCICLOPS
+from resource_helpers.sciclops_resource_defs import plate_definitions
+from sciclops_driver import SCICLOPS, SciClopsLocation
 
-
-class SciclopsConfig(RestNodeConfig):
-    """Configuration for the camera node module."""
-
-    vendor_id: int = 0x7513
-    """The sciclops vendor id address, a device path in Linux/Mac."""
-
-    product_id: int = 0x0002
-
-    """The sciclops vendor id address, a device path in Linux/Mac."""
-
-    neutral_joints: dict[str, float] = {
-        "Z": 23.5188,
-        "R": 109.2741,
-        "Y": 32.7484,
-        "P": 98.2955,
-    }
-    """The neutral joint position for the arm"""
-
-    plate_info: Optional[Any] = None
-    """The specs for picking up different kinds of plates"""
-
-    stack_formation: list[str] = [
-        "microplate_no_lid_stack",
-        "microplate_no_lid_stack",
-        "microplate_no_lid_stack",
-        "microplate_no_lid_stack",
-    ]
-    """List of 4 stack types. Options: 'microplate_no_lid_stack', 'microplate_with_lid_stack', 'deep_well_plate_stack'"""
+"""
+TODO:
+- Add all the SciClops locations to the location client!
+- BUG: replacing lid onto nest from stack, sciclops grabs way too low on the z-axis.
+- Separate out plate type checks for compliance to another helper method
 
 
-class SciclopsNode(RestNode):
-    """MADSci node module for the Hudson Robotics Sciclops."""
 
-    sciclops_interface: SCICLOPS = None
-    config: SciclopsConfig = SciclopsConfig()
-    config_model = SciclopsConfig
+Below is the plate with lid standard that I'm working with:
+
+        # # TESTING (create a properly formatted plate resource with lid slot)
+        # test_lid = Resource(
+        #     resource_name = "TEST_LID",
+        #     attributes={
+        #         "lid": True
+        #     }
+        # )
+        # test_plate_resource = Collection(
+        #     resource_name = "FORMATTED_TEST_PLATE3",
+        #     capacity=2,
+        #     children={
+        #         "lid_slot": Slot(
+        #             resource_name = "lid slot resource on test plate",
+        #             children=[test_lid]
+        #         )
+        #     }
+        # )
+        # self.resource_client.add_resource(test_plate_resource)
+
+
+"""
+
+
+class SciClopsConfig(RestNodeConfig):
+    """Configuration for the SciClops REST Node."""
+
+    default_speed: int = 100
+    """The default speed for the PlateCrane robot arm to move, as a percentage."""
+
+
+class SciClopsNode(RestNode):
+    """A MADSci REST Node for controlling the Hudson SciClops robotic arm."""
+
+    sciclops: Optional[SCICLOPS] = None
+    """The SciClops driver instance."""
+    config_model = SciClopsConfig
+    """The configuration model for the SciClops REST Node."""
+    config: SciClopsConfig = SciClopsConfig()
+    """The default configuration for the SciClops REST Node."""
+    module_version: str = "2.1.0"
+    """The version of the SciClops REST Node module."""
 
     def startup_handler(self):
-        """Called to (re)initialize the node. Should be used to open connections to devices or initialize any other resources."""
+        """Initializes the SciClops driver at node startup."""
+        self.sciclops = SCICLOPS()
 
-        try:
-            self._create_sciclops_templates()
+        # Create resources.
+        self._init_resource_templates()
+        self._create_resources()
 
-            self.logger.log("Node initializing...")
-            self.sciclops_interface = SCICLOPS(
-                config=self.config,
-                resource_client=self.resource_client,
-                gripper_id=self.gripper_resource.resource_id,
-            )
-
-        except Exception as error_msg:
-            self.logger.log_error(f"Error starting the Sciclops Node: {error_msg}")
-            self.startup_has_run = False
-        else:
-            self.startup_has_run = True
-            self.logger.log("Sciclops node initialized")
-
-    def _create_sciclops_templates(self) -> None:
-        """Create all SCICLOPS-specific resource templates."""
-
-        # 1. Gripper slot template
+    def _init_resource_templates(self):
+        # Gripper template
         gripper_slot = Slot(
-            resource_name="sciclops_finger_gripper",
-            resource_class="SCICLOPSGripper",
+            resource_name="sciclops_gripper",
+            resource_class="SciClopsGripper",
             capacity=1,
             attributes={
                 "gripper_type": "sciclops_finger",
-                "handles_slas_standard": True,
-                "well_formats": [96, 384, 1536],
                 "description": "SCICLOPS finger gripper slot for ANSI SLAS-standard microplates",
             },
         )
-
         self.resource_client.init_template(
             resource=gripper_slot,
-            template_name="sciclops_finger_gripper_slot",
-            description="Template for SCICLOPS finger gripper slot. Used to track what the gripper is holding.",
+            template_name="sciclops_gripper_template",
+            description="Template for SciClops finger gripper slot. Used to track what the gripper is holding.",
             required_overrides=["resource_name"],
             tags=["sciclops", "gripper", "slot"],
-            created_by=self.node_definition.node_id,
+            created_by=self.node_info.node_id,
             version="1.0.0",
         )
 
+        # Lid nest template
+        lid_nest_slot = Slot(
+            resource_name="lid_nest_slot",
+            resource_class="SciClopsGripper",
+            capacity=1,
+            attributes={
+                "description": "SciClops lid nest Slot resource",
+            },
+        )
+        self.resource_client.init_template(
+            resource=lid_nest_slot,
+            template_name="sciclops_lid_nest_slot_template",
+            description="Template for SciClops lid nest Slot.",
+            required_overrides=["resource_name"],
+            tags=["sciclops", "slot"],
+            created_by=self.node_info.node_id,
+            version="1.0.0",
+        )
+
+        # Stack template
+        sciclops_stack = Stack(
+            resource_name="sciclops_stack",
+            resource_class="SciClopsStack",
+            attributes={
+                "description": "SciClops stack.",
+            },
+        )
+        self.resource_client.init_template(
+            resource=sciclops_stack,
+            template_name="sciclops_stack_template",
+            description="SciClops stack template.",
+            required_overrides=["resource_name"],
+            tags=["sciclops", "stack"],
+            created_by=self.node_info.node_id,
+            version="1.0.0",
+        )
+
+    def _create_resources(self):
         # Initialize gripper resource from template
         self.gripper_resource = self.resource_client.create_resource_from_template(
-            template_name="sciclops_finger_gripper_slot",
-            resource_name=f"sciclops_gripper_{self.node_definition.node_name}",
+            template_name="sciclops_gripper_template",
+            resource_name=f"{self.node_info.node_name}_gripper.nest",
             add_to_database=True,
         )
 
-        # 2. Exchange slot template
-        exchange_slot = Slot(
-            resource_name="sciclops_exchange",
-            resource_class="SCICLOPSExchange",
-            capacity=1,
-            attributes={
-                "slot_type": "exchange",
-                "handles_slas_standard": True,
-                "description": "SCICLOPS exchange position for plate transfer",
-            },
+        # Initialize lid nests
+        self.lidnest_4 = self.resource_client.create_resource_from_template(
+            template_name="sciclops_lid_nest_slot_template",
+            resource_name="lidnest_4_sciclops",
+            add_to_database=True,
         )
-
-        self.resource_client.init_template(
-            resource=exchange_slot,
-            template_name="sciclops_exchange_slot",
-            description="Template for SCICLOPS exchange slot. Transfer position for plates between robot and other devices.",
-            required_overrides=["resource_name"],
-            tags=["sciclops", "exchange", "slot", "transfer"],
-            created_by=self.node_definition.node_id,
-            version="1.0.0",
-        )
-
-        # Initialize exchange resource from template
-        self.exchange_resource = self.resource_client.create_resource_from_template(
-            template_name="sciclops_exchange_slot",
-            resource_name=f"sciclops_exchange_{self.node_definition.node_name}",
+        self.lidnest_5 = self.resource_client.create_resource_from_template(
+            template_name="sciclops_lid_nest_slot_template",
+            resource_name="lidnest_5_sciclops",
             add_to_database=True,
         )
 
-        # 3. Microplate stack template (no lid)
-        microplate_no_lid_stack = Stack(
-            resource_name="microplate_no_lid_stack",
-            resource_class="SCICLOPSStack",
-            capacity=30,
-            attributes={
-                "stack_type": "microplate_no_lid",
-                "plate_format": "96_well",
-                "max_capacity": 30,
-                "has_lids": False,
-                "handles_slas_standard": True,
-                "description": "SCICLOPS stack for microplates without lids (30 plate capacity)",
-            },
+        # Initialize stack resources from template
+        self.stack_1_resource = self.resource_client.create_resource_from_template(
+            template_name="sciclops_stack_template",
+            resource_name="stack_1",
+            add_to_database=True,
+        )
+        self.stack_2_resource = self.resource_client.create_resource_from_template(
+            template_name="sciclops_stack_template",
+            resource_name="stack_2",
+            add_to_database=True,
+        )
+        self.stack_3_resource = self.resource_client.create_resource_from_template(
+            template_name="sciclops_stack_template",
+            resource_name="stack_3",
+            add_to_database=True,
+        )
+        self.stack_4_resource = self.resource_client.create_resource_from_template(
+            template_name="sciclops_stack_template",
+            resource_name="stack_4",
+            add_to_database=True,
+        )
+        self.stack_5_resource = self.resource_client.create_resource_from_template(
+            template_name="sciclops_stack_template",
+            resource_name="stack_5",
+            add_to_database=True,
         )
 
-        self.resource_client.init_template(
-            resource=microplate_no_lid_stack,
-            template_name="microplate_no_lid_stack",
-            description="Template for SCICLOPS microplate stack without lids. Holds up to 30 ANSI SLAS-standard microplates.",
-            required_overrides=["resource_name"],
-            tags=["sciclops", "stack", "microplate", "no_lid"],
-            created_by=self.node_definition.node_id,
-            version="1.0.0",
-        )
+    def _create_test_plate(self):
+        """USED FOR TESTING."""
+        test_lid = Resource(resource_name="TEST_LID", attributes={"lid": True})
 
-        # 4. Microplate stack template (with lid)
-        microplate_with_lid_stack = Stack(
-            resource_name="microplate_with_lid_stack",
-            resource_class="SCICLOPSStack",
-            capacity=25,
-            attributes={
-                "stack_type": "microplate_with_lid",
-                "plate_format": "96_well",
-                "max_capacity": 25,
-                "has_lids": True,
-                "handles_slas_standard": True,
-                "description": "SCICLOPS stack for microplates with lids (25 plate capacity)",
-            },
-        )
-
-        self.resource_client.init_template(
-            resource=microplate_with_lid_stack,
-            template_name="microplate_with_lid_stack",
-            description="Template for SCICLOPS microplate stack with lids. Holds up to 25 ANSI SLAS-standard microplates with lids.",
-            required_overrides=["resource_name"],
-            tags=["sciclops", "stack", "microplate", "with_lid"],
-            created_by=self.node_definition.node_id,
-            version="1.0.0",
-        )
-
-        # 5. Deep well plate stack template
-        deep_well_plate_stack = Stack(
-            resource_name="deep_well_plate_stack",
-            resource_class="SCICLOPSStack",
-            capacity=9,
-            attributes={
-                "stack_type": "deep_well_plate",
-                "plate_format": "deep_well",
-                "max_capacity": 9,
-                "has_lids": False,
-                "handles_slas_standard": True,
-                "description": "SCICLOPS stack for deep well blocks (9 block capacity)",
-            },
-        )
-
-        self.resource_client.init_template(
-            resource=deep_well_plate_stack,
-            template_name="deep_well_plate_stack",
-            description="Template for SCICLOPS deep well plate stack. Holds up to 9 deep well blocks.",
-            required_overrides=["resource_name"],
-            tags=["sciclops", "stack", "deep_well"],
-            created_by=self.node_definition.node_id,
-            version="1.0.0",
-        )
-
-        # 6. Stack access slot template
-        stack_access_slot = Slot(
-            resource_name="stack_access_slot",
-            resource_class="SCICLOPSStackAccess",
-            capacity=1,
-            attributes={
-                "slot_type": "stack_access",
-                "handles_slas_standard": True,
-                "description": "SCICLOPS stack access slot positioned in front of each stack",
-            },
-        )
-
-        self.resource_client.init_template(
-            resource=stack_access_slot,
-            template_name="stack_access_slot",
-            description="Template for SCICLOPS stack access slot. Positioned in front of each stack for plate access.",
-            required_overrides=["resource_name"],
-            tags=["sciclops", "slot", "stack_access"],
-            created_by=self.node_definition.node_id,
-            version="1.0.0",
-        )
-
-        self.stack_resources = []
-        self.stack_access_slots = []
-
-        for i, stack_type in enumerate(self.config.stack_formation, start=1):
-            if stack_type not in [
-                "microplate_no_lid_stack",
-                "microplate_with_lid_stack",
-                "deep_well_plate_stack",
-            ]:
-                self.logger.log_error(
-                    f"Invalid stack type '{stack_type}' at position {i}"
+        # PLATE 1
+        test_plate_resource = Collection(
+            resource_name="FORMATTED_TEST_PLATE1",
+            capacity=2,
+            children={
+                "lid_slot": Slot(
+                    resource_name="lid slot resource on test plate", children=[test_lid]
                 )
-                raise ValueError(f"Invalid stack type: {stack_type}")
-
-            # Create stack resource from the specified template
-            stack_resource = self.resource_client.create_resource_from_template(
-                template_name=stack_type,
-                resource_name=f"sciclops_stack_{i}_{self.node_definition.node_name}",
-                add_to_database=True,
-            )
-            self.stack_resources.append(stack_resource)
-
-            # Create corresponding stack access slot
-            stack_access = self.resource_client.create_resource_from_template(
-                template_name="stack_access_slot",
-                resource_name=f"sciclops_stack_{i}_access_{self.node_definition.node_name}",
-                add_to_database=True,
-            )
-            self.stack_access_slots.append(stack_access)
-
-            self.logger.log(f"Initialized stack {i} as {stack_type}")
-
-    def shutdown_handler(self) -> None:
-        """Called to shutdown the node. Should be used to close connections to devices or release any other resources."""
-        try:
-            self.sciclops_interface.disconnect()
-            del self.sciclops_interface
-            self.sciclops_interface = None
-        except Exception as err:
-            self.logger.log_error(f"Error shutting down the Sciclops Node: {err}")
-            raise err
-
-    def state_handler(self) -> None:
-        """Periodically called to update the current state of the node."""
-        if self.sciclops_interface is not None:
-            # Getting robot state
-            robot_status = self.sciclops_interface.get_status()
-            if self.sciclops_interface.movement_state == "BUSY":
-                self.node_state = {
-                    "sciclops_status_code": "BUSY",
-                }
-            elif robot_status:
-                self.node_state = {
-                    "sciclops_status_code": robot_status,
-                }
-                self.logger.log(f"Sciclops status: {robot_status}")
-            else:
-                self.node_state = {
-                    "sciclops_status_code": "UNKNOWN",
-                }
-        else:
-            self.node_state = {
-                "sciclops_status_code": "OFFLINE",
-            }
-            self.logger.error("Sciclops is not initialized.")
-
-    @action(name="get_plate")
-    def get_plate(
-        self,
-        source: Annotated[LocationArgument, "Stack to get plate from"],
-        target: Annotated[LocationArgument, "Exchange to place plate"],
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops_interface.get_plate(source, target)
-        return
-
-    @action(name="return_plate")
-    def return_plate(
-        self,
-        source: Annotated[LocationArgument, "Exchange to get plate from"],
-        target: Annotated[LocationArgument, "Tower to place plate"],
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops_interface.return_plate(source, target)
-        return
-
-    @action(name="limp")
-    def limp(
-        self,
-        toggle: Annotated[bool, "turn on or off bool"] = False,
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops_interface.limp(toggle)
-        return
-
-    @action(name="open")
-    def open(
-        self,
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops_interface.open()
-        return
-
-    @action(name="close")
-    def close(
-        self,
-    ):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        self.sciclops_interface.close()
-        return
-
-    @action(name="move")
-    def move(self, target: Annotated[LocationArgument, "Target Location to move to"]):
-        """Get a plate from a stack position and move it to transfer point (or trash)"""
-        location = target.location
-        self.sciclops_interface.move(
-            location["Z"], location["R"], location["Y"], location["P"]
+            },
         )
-        return
+        self.resource_client.add_resource(test_plate_resource)
 
-    def get_location(self) -> AdminCommandResponse:
-        """Return the current position of the sciclops"""
+        # PLATE 2
+        test_plate_resource = Collection(
+            resource_name="FORMATTED_TEST_PLATE2",
+            capacity=2,
+            children={
+                "lid_slot": Slot(
+                    resource_name="lid slot resource on test plate", children=[test_lid]
+                )
+            },
+        )
+        self.resource_client.add_resource(test_plate_resource)
+
+    @action()
+    def home(self) -> None:
+        """Homes the SciClops."""
+        self.sciclops.home()
+
+    @action()
+    def pick(
+        self,
+        source: LocationArgument,
+        plate_type: Optional[str] = None,
+        height_offset: Annotated[int, "Height offset in mm"] = 0,
+        is_lid: Annotated[bool, "Is the labware a lid?"] = False,
+        has_lid: Annotated[bool, "Does the labware have a lid?"] = False,
+        incremental_lift: Annotated[bool, "Incremental lift during transfer"] = False,
+    ) -> None:
+        """Picks labware from a location, ending in the PlateCrane gripper."""
+
+        # Extract source representation and validate.
+        # TODO: Catch error and return ActionFailed
+        source.representation["name"] = source.location_name
+        source = SciClopsLocation.model_validate(source.representation)
+
+        # Extract plate definition
         try:
-            return AdminCommandResponse(
-                data={"location": self.sciclops_interface.get_position()}
+            plate_def = plate_definitions[plate_type]
+        except Exception as e:
+            return ActionFailed(
+                errors=[
+                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
+                ]
             )
-        except Exception:
-            return AdminCommandResponse(success=False)
 
-    def home(self) -> AdminCommandResponse:
-        """Home the sciclops"""
+        # Check state of resources in ResourceClient.
+        plate_resource = None
+        if (self.resource_client is not None) and (self.location_client is not None):
+            # Does a plate resource exist at the source location?
+            source_resource_id = self.location_client.get_location_by_name(
+                source.name
+            ).resource_id
+            source_resource = self.resource_client.get_resource(source_resource_id)
+            if len(source_resource.children) > 0:
+                plate_resource = source_resource.children[-1]
+                # This accounts for the source resource being a stack (last plate (one on the top) is the plate that gets popped.)
+            else:
+                return ActionFailed(
+                    errors=[
+                        f"No plate resource exists at source location {source.name}"
+                    ]
+                )
+
+            # Is the gripper location clear?
+            self.gripper_resource = self.resource_client.get_resource(
+                self.gripper_resource
+            )  # update the gripper resource
+            if len(self.gripper_resource.children) == 1:
+                return ActionFailed(
+                    errors=[
+                        "A resource is already in the gripper. Pick action cannot be completed."
+                    ]
+                )
+        else:
+            self.logger.log_warning(
+                f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+            )
+
+        # Physically pick the plate.
+        self.sciclops.pick_plate_direct(
+            source=source,
+            plate_type=plate_def,
+            grip_height_offset=height_offset,
+            is_lid=is_lid,
+            has_lid=has_lid,
+            incremental_lift=incremental_lift,
+        )
+
+        # Push plate resource into gripper resource as a child.
+        if plate_resource:
+            self.resource_client.push(
+                resource=self.gripper_resource, child=plate_resource
+            )
+
+        # If sucessful, return None.
+        return None
+
+    @action()
+    def place(
+        self,
+        target: LocationArgument,
+        plate_type: Optional[str] = None,
+        height_offset: Annotated[int, "Height offset in mm."] = 0,
+        is_lid: Annotated[bool, "Is the plate a lid?"] = False,
+        replacing_lid: Annotated[bool, "Are you replacing a lid?"] = False,
+    ) -> None:
+        """Places labware at a location."""
+
+        target.representation["name"] = target.location_name
+        target = SciClopsLocation.model_validate(target.representation)
+
+        # Extract plate definition
         try:
-            self.sciclops_interface.home()
-            return AdminCommandResponse()
-        except Exception:
-            return AdminCommandResponse(success=False)
+            plate_def = plate_definitions[plate_type]
+        except Exception as e:
+            return ActionFailed(
+                errors=[
+                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
+                ]
+            )
 
-    def reset(self) -> AdminCommandResponse:
-        """Reset the Sciclops robot"""
-        self.logger.log("Resetting node...")
-        result = super().reset()
-        self.logger.log("Node reset.")
-        return result
+        # Check state of resources in ResourceClient.
+        plate_resource = None
+        if (self.resource_client is not None) and (self.location_client is not None):
+            # Does a plate resource exist in the gripper?
+            self.gripper_resource = self.resource_client.get_resource(
+                self.gripper_resource
+            )  # update the gripper resource
+            if len(self.gripper_resource.children) == 1:
+                plate_resource = self.gripper_resource.child
+            else:
+                return ActionFailed(
+                    errors=[
+                        "No plate resource exists in the gripper. Place action cannot be completed."
+                    ]
+                )
+
+            # Is the target location clear?
+            target_resource_id = self.location_client.get_location_by_name(
+                target.name
+            ).resource_id
+            target_resource = self.resource_client.get_resource(target_resource_id)
+
+            if len(target_resource.children) == 1 and target.location_type != "stack":
+                # Do not fail the action if there's already a plate in a stack target location.
+                return ActionFailed(
+                    errors=[
+                        f"A plate resource already exists at the target location {target.name}. The place action cannot be completed."
+                    ]
+                )
+
+        else:
+            self.logger.log_warning(
+                f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+            )
+
+        # Physically place the plate.
+        self.sciclops.place_plate_direct(
+            target=target,
+            plate_type=plate_def,
+            is_lid=is_lid,
+            replacing_lid=replacing_lid,
+            grip_height_offset=height_offset,
+        )
+
+        # Push plate resource into target resource as child.
+        self.resource_client.push(
+            resource=target_resource,
+            child=plate_resource,
+        )
+
+        return None
+
+    @action()
+    def transfer(
+        self,
+        source: LocationArgument,
+        target: LocationArgument,
+        plate_type: Optional[str] = None,
+        source_height_offset: Annotated[int, "Height offset in mm."] = 0,
+        target_height_offset: Annotated[int, "Height offset in mm."] = 0,
+        has_lid: Annotated[bool, "Does the plate have a lid?"] = False,
+    ) -> None:
+        """Transfers a plate from one location to another."""
+
+        # Pick the plate.
+        pick_result = self.pick(
+            source=source,
+            plate_type=plate_type,
+            height_offset=source_height_offset,
+            is_lid=False,  # assuming this transfer funtion is for the main labware. Remove/replace lid works for lids.
+            has_lid=has_lid,
+        )
+        if pick_result is not None:
+            # Return any ActionFailed response received.
+            # Fails the action, but does not put the device into an error state.
+            return pick_result
+
+        # Place the plate.
+        place_result = self.place(
+            target=target,
+            plate_type=plate_type,
+            height_offset=target_height_offset,
+            is_lid=False,  # assuming we're not using this transfer function to move lids.
+            replacing_lid=False,
+        )
+        return place_result
+
+    @action()
+    def move(
+        self,
+        location: LocationArgument,
+    ) -> None:
+        """Moves the SciClops to a specified location."""
+
+        location.representation["name"] = location.location_name
+        location = SciClopsLocation.model_validate(location.representation)
+
+        self.sciclops.move_loc(location)
+        return None
+
+    @action()
+    def remove_lid(
+        self,
+        source: LocationArgument,
+        target: LocationArgument,
+        plate_type: Annotated[
+            str, "Type of plate, e.g. 'flat_bottom_96well' or 'deep_96well"
+        ],
+        height_offset: Annotated[int, "Height offset in motor steps"] = 0,
+        ignore_resource_checks: Annotated[
+            bool, "True to ignore ResourceClient validations, False otherwise."
+        ] = False,
+    ) -> None:
+        """Removes a lid from a plate."""
+
+        # Extract source and target representations and validate.
+        # TODO: Catch errors and return ActionFailed
+        source.representation["name"] = source.location_name
+        target.representation["name"] = target.location_name
+        source = SciClopsLocation.model_validate(source.representation)
+        target = SciClopsLocation.model_validate(target.representation)
+
+        # Extract plate definition
+        try:
+            plate_def = plate_definitions[plate_type]
+        except Exception as e:
+            return ActionFailed(
+                errors=[
+                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
+                ]
+            )
+
+        # Complete MADSci resource checks.
+        lid_resource = None
+        plate_resource = None
+        source_resource = None
+        target_resource = None
+        if not ignore_resource_checks:
+            # TODO: Validate plate resource structure conformity with a Pydantic model.
+            if (self.resource_client is not None) and (
+                self.location_client is not None
+            ):
+                # Is a lid resource present on the source location for removal?
+                source_resource_id = self.location_client.get_location_by_name(
+                    source.name
+                ).resource_id
+                source_resource = self.resource_client.get_resource(source_resource_id)
+
+                if len(source_resource.children) > 0:
+                    plate_resource = source_resource.children[
+                        -1
+                    ]  # This accounts for the source being a stack as well (last item in stack list is the item popped)
+
+                    if "lid_slot" in plate_resource.children:
+                        lid_slot_child_value = plate_resource.children["lid_slot"]
+                        if isinstance(lid_slot_child_value, Slot):
+                            if len(lid_slot_child_value.children) == 1:
+                                lid_resource = (
+                                    lid_slot_child_value.child
+                                )  # collect lid resource
+                                self.logger.log_info(
+                                    f"Identified lid Slot resource {lid_resource.resource_id} for removal."
+                                )
+                            else:
+                                return ActionFailed(
+                                    errors=[
+                                        f"No lid resource exists in the lid slot. {lid_slot_child_value}"
+                                    ]
+                                )
+                        else:
+                            return ActionFailed(
+                                errors=[
+                                    f"Lid slot child value is not of type Slot. {lid_slot_child_value=}"
+                                ]
+                            )
+                    else:
+                        return ActionFailed(
+                            errors=f'No "lid" child exists on the plate resource {plate_resource.resource_id}'
+                        )
+                else:
+                    return ActionFailed(
+                        errors=[
+                            f"No plate resource exists at source location {source.name}"
+                        ]
+                    )
+
+                # Is the target location clear?
+                target_resource_id = self.location_client.get_location_by_name(
+                    target.name
+                ).resource_id
+                target_resource = self.resource_client.get_resource(target_resource_id)
+                if target.location_type == "nest":
+                    if not len(target_resource.children) == 0:
+                        return ActionFailed(
+                            errors=[
+                                f"A plate resource already exists at the target location {target.name}. The remove lid action cannot be completed."
+                            ]
+                        )
+
+                # Is the gripper location clear?
+                self.gripper_resource = self.resource_client.get_resource(
+                    self.gripper_resource
+                )  # update the gripper resource
+                if len(self.gripper_resource.children) == 1:
+                    return ActionFailed(
+                        errors=[
+                            "A resource is already in the gripper. Pick action cannot be completed."
+                        ]
+                    )
+            else:
+                return ActionFailed(
+                    errors=[
+                        f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+                    ]
+                )
+        else:
+            self.logger.log_info("Skipping resources validation for remove lid action.")
+
+        self.sciclops.remove_lid(
+            source=source,
+            target=target,
+            plate_type=plate_def,
+            grip_height_offset=height_offset,
+        )
+
+        # transfer the lid resource
+        # TODO: this skips transferring through the gripper for now
+        # since pick and place for the lid are not called separately
+        if target_resource and lid_resource:
+            # Push lid resource onto target Slot resource.
+            try:
+                self.resource_client.push(target_resource, lid_resource)
+            except Exception as e:
+                # Return Action Failed. Do not put device into an error state.
+                return ActionFailed(
+                    errors=[f"Lid resource could not be removed in ResourceClient. {e}"]
+                )
+        else:
+            return ActionFailed(
+                errors=[
+                    f"lid_resource or target_resource do not exist. {lid_resource=}, {target_resource=}"
+                ]
+            )
+
+    @action()
+    def replace_lid(
+        self,
+        source: LocationArgument,
+        target: LocationArgument,
+        plate_type: Annotated[
+            str, "Type of plate, e.g. 'flat_bottom_96well' or 'deep_96well'"
+        ],
+        height_offset: Annotated[int, "Height offset in motor steps"] = 0,
+        ignore_resource_checks: Annotated[
+            bool, "True to ignore ResourceClient validations, False otherwise."
+        ] = False,
+    ) -> None:
+        """Replaces a lid on a plate."""
+
+        # Extract source and target representations and validate.
+        # TODO Catch errors and return ActionFailed (allows the user to try again without restarting the node)
+        source.representation["name"] = source.location_name
+        target.representation["name"] = target.location_name
+        source = SciClopsLocation.model_validate(source.representation)
+        target = SciClopsLocation.model_validate(target.representation)
+
+        # Extract plate definition.
+        try:
+            plate_def = plate_definitions[plate_type]
+        except Exception as e:
+            return ActionFailed(
+                errors=[
+                    f"Plate type {plate_type} definition does not exist in sciclops_resource_defs.py plate_definitions. {e}"
+                ]
+            )
+
+        # Complete MADSci resource checks.
+        lid_resource = None
+        lid_slot_resource = None
+        plate_resource = None
+        source_resource = None
+        target_resource = None
+        if not ignore_resource_checks:
+            # TODO: Validate plate resource structure conformity with a Pydantic model.
+            if (self.resource_client is not None) and (
+                self.location_client is not None
+            ):
+                # Check for a lid resource in the source location.
+                source_resource_id = self.location_client.get_location_by_name(
+                    source.name
+                ).resource_id
+                source_resource = self.resource_client.get_resource(source_resource_id)
+                if (
+                    len(source_resource.children) > 0
+                ):  # source slot resource can only have one child
+                    child_resource = source_resource.children[
+                        -1
+                    ]  # accounts for the source being a stack as well as a nest
+
+                    if "lid" in child_resource.attributes:
+                        if child_resource.attributes["lid"] is True:
+                            lid_resource = source_resource.children[
+                                -1
+                            ]  # a lid exists at the source location
+                        else:
+                            return ActionFailed(
+                                errors=[
+                                    f'"lid" attribute is set to {source_resource.child.attributes["lid"]}.'
+                                ]
+                            )
+                    else:
+                        self.logger.log_warning(
+                            f'Lid resource found does not conform to standard. No "lid" attribute found. {lid_resource}'
+                        )
+                else:
+                    return ActionFailed(
+                        errors=["No lid resource exists at source location."]
+                    )
+
+                # Check for a plate without a lid at the target location
+                target_resource_id = self.location_client.get_location_by_name(
+                    target.name
+                ).resource_id
+                target_resource = self.resource_client.get_resource(target_resource_id)
+                if len(target_resource.children) > 0:
+                    plate_resource = target_resource.children[-1]
+                    if "lid_slot" in plate_resource.children:
+                        if len(plate_resource.children["lid_slot"].children) != 0:
+                            return ActionFailed(
+                                errors=[
+                                    f"A lid resource already exists on the plate resource at the target location. plate_resource={plate_resource=}"
+                                ]
+                            )
+                        lid_slot_resource = plate_resource.children["lid_slot"]
+                    else:
+                        return ActionFailed(
+                            errors=[
+                                f"Target plate resource has no lid slot resource. {target_resource=}"
+                            ]
+                        )
+                else:
+                    return ActionFailed(
+                        errors=[
+                            f"No plate resource exists at the target location {target.name}. The remove lid action cannot be completed."
+                        ]
+                    )
+
+                # Is the gripper location clear?
+                self.gripper_resource = self.resource_client.get_resource(
+                    self.gripper_resource
+                )  # update the gripper resource
+                if len(self.gripper_resource.children) == 1:
+                    return ActionFailed(
+                        errors=[
+                            "A resource is already in the gripper. Pick action cannot be completed."
+                        ]
+                    )
+
+            else:
+                return ActionFailed(
+                    errors=[
+                        f"No ResourceClient and/or LocationClient present. {self.resource_client=}, {self.location_client=}"
+                    ]
+                )
+        else:
+            self.logger.log_info(
+                "Skipping resources validation for replace lid action."
+            )
+
+        self.sciclops.replace_lid(
+            source=source,
+            target=target,
+            plate_type=plate_def,
+            grip_height_offset=height_offset,
+        )
+
+        # Transfer the lid resource
+        # TODO: this skips transferring through the gripper for now
+        # since pick and place for the lid are not called separately
+        if lid_resource and lid_slot_resource:
+            # push lid resource onto the plate resource's lid slot
+            try:
+                self.resource_client.push(lid_slot_resource, lid_resource)
+            except Exception as e:
+                # Return Action Failed.Do not put device into an error state.
+                return ActionFailed(
+                    errors=[
+                        f"Lid resource could not be replaced in ResourceClient. {e}"
+                    ]
+                )
+        else:
+            return ActionFailed(
+                errors=[
+                    f"lid_resource or lid_slot_resource do not exist. {lid_resource=}, {lid_slot_resource=}"
+                ]
+            )
+
+    @action
+    def get_current_position(self) -> list:
+        """Returns the location joint angles of the SciClops."""
+        return self.sciclops.get_current_position()
 
 
 if __name__ == "__main__":
-    sciclops_node = SciclopsNode()
+    sciclops_node = SciClopsNode()
     sciclops_node.start_node()

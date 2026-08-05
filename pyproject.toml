@@ -7,6 +7,7 @@ authors = [
     {name = "Doga Ozgulbas", email="dozgulbas@anl.gov"},
     {name = "Abe Stroka", email="astroka@anl.gov"},
     {name = "Tobias Ginsburg", email = "tginsburg@anl.gov"},
+    {name = "Casey Stone", email = "cstone@anl.gov"},
 ]
 dependencies = [
     "fastapi>=0.103",
@@ -14,13 +15,13 @@ dependencies = [
     "pyusb",
     "libusb",
     "pyserial",
-    "madsci-node-module~=0.5.0",
-    "madsci-client~=0.5.0",
-    "madsci-common~=0.5.0",
+    "madsci-node-module~=0.8.0",
+    "madsci-client~=0.8.0",
+    "madsci-common~=0.8.0",
     "pydantic>=2.7",
     "pytest"
 ]
-requires-python = ">=3.9.1"
+requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
 
